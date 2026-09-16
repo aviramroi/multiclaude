@@ -1,0 +1,106 @@
+// A transcript is append-only JSONL. Entries with `uuid`/`parentUuid` form a DAG
+// (user → assistant → user …); metadata lines (queue-operation, last-prompt …)
+// carry no uuid and are addressed by a content hash instead.
+export interface Entry {
+  id: string
+  parent: string | null
+  type: string
+  ts: string | null
+  raw: string
+}
+
+export interface WireEntry extends Entry {
+  seq?: number
+  author?: string
+}
+
+export function hashLine(line: string): string {
+  const h = new Bun.CryptoHasher("sha256")
+  h.update(line)
+  return "h_" + h.digest("hex").slice(0, 32)
+}
+
+export function parseLine(line: string): Entry | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  let obj: any
+  try {
+    obj = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  return {
+    id: typeof obj.uuid === "string" ? obj.uuid : hashLine(trimmed),
+    parent: typeof obj.parentUuid === "string" ? obj.parentUuid : null,
+    type: typeof obj.type === "string" ? obj.type : "unknown",
+    ts: typeof obj.timestamp === "string" ? obj.timestamp : null,
+    raw: trimmed,
+  }
+}
+
+export async function readTranscript(path: string): Promise<Entry[]> {
+  const f = Bun.file(path)
+  if (!(await f.exists())) return []
+  const text = await f.text()
+  const out: Entry[] = []
+  for (const line of text.split("\n")) {
+    const e = parseLine(line)
+    if (e) out.push(e)
+  }
+  return out
+}
+
+export async function appendLines(path: string, lines: string[]): Promise<void> {
+  if (!lines.length) return
+  const f = Bun.file(path)
+  const existing = (await f.exists()) ? await f.text() : ""
+  const sep = existing.length && !existing.endsWith("\n") ? "\n" : ""
+  await Bun.write(path, existing + sep + lines.join("\n") + "\n")
+}
+
+/** DAG leaves among conversational entries. >1 leaf means the session diverged. */
+export function leaves(entries: Entry[]): Entry[] {
+  const conv = entries.filter((e) => e.type === "user" || e.type === "assistant")
+  const hasChild = new Set(conv.map((e) => e.parent).filter(Boolean) as string[])
+  return conv.filter((e) => !hasChild.has(e.id))
+}
+
+/** Rewrite machine-specific fields so a pulled transcript resumes on this machine. */
+export function localize(raw: string, cwd: string, sessionId: string): string {
+  try {
+    const obj = JSON.parse(raw)
+    if ("cwd" in obj) obj.cwd = cwd
+    if ("sessionId" in obj) obj.sessionId = sessionId
+    return JSON.stringify(obj)
+  } catch {
+    return raw
+  }
+}
+
+/** Human-readable one-liner for a transcript entry (null for noise). */
+export function summarize(raw: string, max = 160): { role: string; text: string } | null {
+  let obj: any
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (obj.type !== "user" && obj.type !== "assistant") return null
+  const m = obj.message ?? {}
+  const parts: string[] = []
+  const content = m.content
+  if (typeof content === "string") parts.push(content)
+  else if (Array.isArray(content)) {
+    for (const c of content) {
+      if (c.type === "text") parts.push(c.text)
+      else if (c.type === "tool_use") parts.push(`⚙ ${c.name}(${JSON.stringify(c.input).slice(0, 80)})`)
+      else if (c.type === "tool_result") {
+        const t = typeof c.content === "string" ? c.content : JSON.stringify(c.content)
+        parts.push(`↳ ${String(t).slice(0, 80)}`)
+      }
+    }
+  }
+  const text = parts.join(" ").replace(/\s+/g, " ").trim()
+  if (!text) return null
+  return { role: obj.type, text: text.length > max ? text.slice(0, max) + "…" : text }
+}

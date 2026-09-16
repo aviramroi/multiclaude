@@ -1,0 +1,21 @@
+{
+  "name": "multiclaude",
+  "version": "0.1.0",
+  "description": "git-style push/pull + live multiplayer for Claude Code (and later Codex) sessions",
+  "type": "module",
+  "bin": {
+    "mc": "./bin/mc"
+  },
+  "scripts": {
+    "server": "bun run src/server/index.ts",
+    "cli": "bun run src/cli/index.ts",
+    "build": "bun build --compile --minify src/cli/index.ts --outfile dist/mc",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

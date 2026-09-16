@@ -1,0 +1,7 @@
+{
+  "name": "multiclaude",
+  "description": "git-style push/pull and live multiplayer for Claude Code sessions across accounts and machines",
+  "version": "0.1.0",
+  "author": { "name": "co" },
+  "keywords": ["sessions", "sync", "multiplayer", "collaboration", "handoff"]
+}
