@@ -1,6 +1,6 @@
 import type { Store, User, Session, StoredEntry } from "./store"
 import type { WireEntry } from "../core/transcript"
-import { landing, claimPage, accountPage, signInPage, joinPage, agentInstructions } from "./web"
+import { landing, claimPage, accountPage, signInPage, joinPage, agentInstructions, agentIndex, prompts, type AgentAction } from "./web"
 import { installScript } from "./install"
 import { sendClaimCode, mailConfigured } from "./mail"
 
@@ -94,11 +94,13 @@ export function createApp(opts: AppOptions) {
     if (path === "/install.sh") return new Response(installScript(base), { headers: { "content-type": "text/x-shellscript" } })
 
     const text = (b: string) => new Response(b, { headers: { "content-type": "text/plain; charset=utf-8" } })
-    if (path === "/agent" || path === "/agent.md") return text(agentInstructions(base))
+    if (path === "/agent" || path === "/agent.md") return text(agentIndex(base))
+    const am = path.match(/^\/agent\/(setup|share|catchup|live)$/)
+    if (am) return text(agentInstructions(base, am[1] as AgentAction))
     const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})(\/agent)?$/)
     if (joinM) {
       const mode = url.searchParams.get("mode") === "live" ? "live" : "turn"
-      if (joinM[2]) return text(agentInstructions(base, { key: joinM[1], mode }))
+      if (joinM[2]) return text(agentInstructions(base, "join", { key: joinM[1], mode }))
       return html(joinPage({ host: base, key: joinM[1], mode, sessions: await store.countByKey(joinM[1]) }))
     }
 

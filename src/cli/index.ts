@@ -72,7 +72,7 @@ function inviteLink(pc: ProjectConfig) {
 }
 
 function inviteSentence(pc: ProjectConfig) {
-  return `Please join my teammate's multiclaude project in this folder by following the instructions at ${pc.remote}/j/${pc.shareKey}/agent${pc.mode === "live" ? "?mode=live" : ""} — then tell me which sessions are available and stop.`
+  return `Please join my teammate's multiclaude project in this folder by following the instructions at ${pc.remote}/j/${pc.shareKey}/agent${pc.mode === "live" ? "?mode=live" : ""} exactly — then tell me which session is ready and how to open it, and stop.`
 }
 
 function parseSessionRef(ref: string): { id: string; remote?: string; key?: string } {
