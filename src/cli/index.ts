@@ -14,6 +14,7 @@ import { setupHooks } from "./setup"
 const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude Code sessions
 
   mc login [url] [--token T] [--name N]   set remote (default http://localhost:4747), register/auth
+  mc whoami                               machine identity + approval status
   mc init [--mode turn|live|off]          write .multiclaude.json: hooks then sync every session here, zero tokens
   mc open <name|id> | mc open --new <name>  pull → claude --resume → (live daemon) → push on exit
   mc push [session] [--name N] [--link]   push a local session (default: latest in this cwd)
@@ -96,7 +97,18 @@ async function main() {
       }
       await saveConfig(cfg)
       console.log(`logged in to ${cfg.remote} as @${cfg.user}`)
+      const me = await new Client(cfg.remote, cfg.token).me().catch(() => null)
+      if (me && !me.claimed && me.claim_url) {
+        console.log(`\nAPPROVAL NEEDED — open this link to approve the account for this machine:\n  ${me.claim_url}\n`)
+      } else if (me?.email) console.log(`approved by ${me.email}`)
       console.log(`token: ${cfg.token}  (reuse with: mc login ${cfg.remote} --token …)`)
+      return
+    }
+
+    case "whoami": {
+      const { cfg, api } = await client(flags.remote)
+      const me = await api.me()
+      console.log(`@${me.user} on ${cfg.remote}${me.email ? ` — approved by ${me.email}` : ` — NOT approved yet: ${me.claim_url}`}`)
       return
     }
 

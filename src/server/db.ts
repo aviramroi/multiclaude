@@ -26,7 +26,20 @@ export function openDb(path: string) {
       UNIQUE (session_id, id)
     );
     CREATE INDEX IF NOT EXISTS entries_session_seq ON entries(session_id, seq);
+    CREATE TABLE IF NOT EXISTS otps (
+      email TEXT NOT NULL, code TEXT NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS browser_sessions (
+      id TEXT PRIMARY KEY, email TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
+  // machine accounts (users) get claimed by a human via email — additive columns for older DBs
+  for (const col of ["email TEXT", "claim_code TEXT", "claimed_at TEXT"]) {
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col}`)
+    } catch {}
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_claim_code ON users(claim_code)")
   return db
 }
 

@@ -18,6 +18,7 @@ export async function client(remote?: string) {
     cfg.remote = base
     await saveConfig(cfg)
     console.error(`mc: registered as "${name}" on ${base}`)
+    if (r.claim_url) console.error(`mc: approve this machine at ${r.claim_url}`)
   }
   return { cfg, api: new Client(base, cfg.token) }
 }

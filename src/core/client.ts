@@ -37,10 +37,10 @@ export class Client {
   }
 
   register(name: string) {
-    return this.req<{ token: string; user: string }>("POST", "/auth/register", { name })
+    return this.req<{ token: string; user: string; claim_url?: string }>("POST", "/auth/register", { name })
   }
   me() {
-    return this.req<{ user: string }>("GET", "/me")
+    return this.req<{ user: string; email: string | null; claimed: boolean; claim_url: string | null }>("GET", "/me")
   }
   listSessions(shareKey?: string) {
     return this.req<RemoteSession[]>("GET", "/sessions", undefined, shareKey)

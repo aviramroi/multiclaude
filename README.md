@@ -10,13 +10,22 @@ you                              server (Bun + SQLite + WS)              teammat
 ```
 
 ## Install
+
+**Let your agent do it.** Paste into Claude Code or Codex:
+
+> Install multiclaude on this machine and connect it: run `curl -fsSL https://<your-server>/install.sh | bash`, then `mc login https://<your-server>`. Send me the approval link it prints and stop.
+
+The agent gets a working token immediately; you open the link, enter your email + a 6-digit code, and the machine is approved (Neon-style claimable signup). Nothing else is created without you.
+
+**By hand:**
 ```sh
-git clone … ~/multiclaude && cd ~/multiclaude && bun install
-ln -s ~/multiclaude/bin/mc /usr/local/bin/mc        # or: bun run build && cp dist/mc /usr/local/bin
-bun run server                                       # self-host, :4747 (PORT, MULTICLAUDE_DB)
-mc login http://localhost:4747                       # registers a token for this machine/account
-claude plugin add ~/multiclaude/plugin               # /multiclaude:push, :pull, :clone, :share, :live, :status + hooks
+git clone https://github.com/aviramroi/multiclaude ~/multiclaude && cd ~/multiclaude && bun install
+ln -s ~/multiclaude/bin/mc ~/.local/bin/mc          # or: bun run build && cp dist/mc ~/.local/bin
+bun run server                                       # self-host, :4747 (PORT, MULTICLAUDE_DB, PUBLIC_URL, RESEND_API_KEY)
+mc login http://localhost:4747                       # prints the approval link
+mc setup claude && mc setup codex                    # hooks; or: claude --plugin-dir ~/multiclaude/plugin
 ```
+The server also serves the landing page (`/`), `install.sh`, the claim flow (`/claim/<code>`) and a minimal account page (`/account`). Without `RESEND_API_KEY` the email code is printed to the server log.
 
 ## Zero-token workflow (hooks do everything)
 ```sh
