@@ -178,7 +178,8 @@ async function main() {
 
     case "log": {
       const id = await resolveLocal(cwd, args[0], agentName)
-      const entries = await readTranscript(await adapter.sessionPath(cwd, id))
+      const ad = getAdapter((await tracked(id))?.adapter ?? agentName)
+      const entries = await readTranscript(await ad.sessionPath(cwd, id))
       for (const e of entries) {
         const s = summarize(e.raw, 400)
         if (s) console.log(`${s.role === "user" ? "you   ▸" : "claude▸"} ${s.text}`)

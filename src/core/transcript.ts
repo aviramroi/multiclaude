@@ -122,6 +122,8 @@ function summarizeCodex(obj: any, max: number): { role: string; text: string } |
     if (p.role === "developer" || p.role === "system") return null
     role = p.role === "user" ? "user" : "assistant"
     for (const c of p.content ?? []) if (c.type === "input_text" || c.type === "output_text") parts.push(c.text)
+    // Codex injects environment context (<recommended_plugins>, <environment_context>…) as user turns
+    if (role === "user" && /^\s*<[a-z_]+>/.test(parts.join(""))) return null
   } else if (p.type === "function_call" || p.type === "custom_tool_call") {
     parts.push(`⚙ ${p.name}(${String(p.arguments ?? p.input ?? "").slice(0, 80)})`)
   } else return null
