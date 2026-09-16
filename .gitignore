@@ -3,3 +3,6 @@ dist
 *.db
 *.db-*
 .env
+.env.local
+.vercel
+api/index.mjs

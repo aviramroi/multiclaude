@@ -1,3 +1,5 @@
+export const mailConfigured = () => !!process.env.RESEND_API_KEY
+
 /** Send a claim code. Uses Resend when RESEND_API_KEY is set; otherwise logs it (dev mode). */
 export async function sendClaimCode(email: string, code: string, host: string) {
   const key = process.env.RESEND_API_KEY

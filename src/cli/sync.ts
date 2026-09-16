@@ -35,8 +35,8 @@ export async function tracked(id: string) {
   return (await loadState()).sessions[id]
 }
 
-/** Resolve "latest" / name / prefix → full local session id. */
-export async function resolveLocal(cwd: string, ref?: string, adapterName = "claude"): Promise<string> {
+/** Resolve "latest" / name / prefix → full session id (local state first, then the remote by name). */
+export async function resolveLocal(cwd: string, ref?: string, adapterName = "claude", remote?: { url?: string; shareKey?: string }): Promise<string> {
   const adapter = getAdapter(adapterName)
   const sessions = await adapter.listSessions(cwd)
   if (!ref || ref === "latest") {
@@ -49,7 +49,14 @@ export async function resolveLocal(cwd: string, ref?: string, adapterName = "cla
   const hit = sessions.filter((s) => s.id.startsWith(ref))
   if (hit.length === 1) return hit[0].id
   if (hit.length > 1) throw new Error(`ambiguous session prefix: ${ref}`)
-  return ref // assume a remote id
+  if (/^[0-9a-f-]{36}$/.test(ref)) return ref
+  // a teammate's session named at push time: look it up on the remote
+  const { api } = await client(remote?.url)
+  const list = await api.listSessions(remote?.shareKey).catch(() => [])
+  const byRemoteName = list.filter((s) => s.name === ref || s.id.startsWith(ref))
+  if (byRemoteName.length === 1) return byRemoteName[0].id
+  if (byRemoteName.length > 1) throw new Error(`ambiguous session ref: ${ref}`)
+  return ref
 }
 
 export interface PushResult { added: number; head: number; total: number; diverged: boolean }

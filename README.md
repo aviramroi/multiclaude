@@ -13,18 +13,18 @@ you                              server (Bun + SQLite + WS)              teammat
 
 **Let your agent do it.** Paste into Claude Code or Codex:
 
-> Set up multiclaude on this machine: run `curl -fsSL https://multiclaude.fly.dev/install.sh | bash` and then `mc login https://multiclaude.fly.dev`. Send me the approval link it prints and stop.
+> Set up multiclaude on this machine: run `curl -fsSL https://multiclaude-rouge.vercel.app/install.sh | bash` and then `mc login https://multiclaude-rouge.vercel.app`. Send me the approval link it prints and stop.
 
 The script drops one static `mc` binary into `~/.multiclaude/bin` and wires the Claude Code / Codex hooks. The agent gets a working token immediately; you open the link, enter your email + a 6-digit code, and the machine is approved (Neon-style claimable signup). Nothing else is created without you.
 
 ## Share a project — zero tokens, hooks do everything
 ```sh
-cd ~/proj && mc init                # prints an invite link  https://multiclaude.fly.dev/j/<key>
+cd ~/proj && mc init                # prints an invite link  https://multiclaude-rouge.vercel.app/j/<key>
 claude                              # every session in this folder now syncs: push on Stop, pull on start/prompt
 ```
 Teammate (any account, any machine) pastes the invite link to their agent — or:
 ```sh
-cd ~/proj && mc join https://multiclaude.fly.dev/j/<key>
+cd ~/proj && mc join https://multiclaude-rouge.vercel.app/j/<key>
 mc ls                               # the team's sessions
 mc open <name|id>                   # pull → claude --resume → push on exit (live daemon in live mode)
 ```

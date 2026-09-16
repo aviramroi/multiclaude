@@ -60,8 +60,14 @@ export class Client {
   pushEntries(id: string, entries: WireEntry[]) {
     return this.req<{ added: number; head: number }>("POST", `/sessions/${id}/entries`, { entries })
   }
-  pullEntries(id: string, after: number) {
-    return this.req<{ entries: WireEntry[]; head: number }>("GET", `/sessions/${id}/entries?after=${after}`)
+  pullEntries(id: string, after: number, waitSeconds = 0) {
+    return this.req<{ entries: WireEntry[]; head: number }>("GET", `/sessions/${id}/entries?after=${after}${waitSeconds ? `&wait=${waitSeconds}` : ""}`)
+  }
+  /** does this host support WebSockets? (serverless hosts answer 501) */
+  async supportsWs(id: string): Promise<boolean> {
+    const headers: Record<string, string> = this.token ? { authorization: `Bearer ${this.token}` } : {}
+    const res = await fetch(`${this.base}/sessions/${id}/ws`, { headers }).catch(() => null)
+    return !!res && res.status !== 501
   }
   wsUrl(id: string, after: number) {
     const u = new URL(this.base)

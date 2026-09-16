@@ -10,12 +10,16 @@
     "server": "bun run src/server/index.ts",
     "cli": "bun run src/cli/index.ts",
     "build": "bun build --compile --minify src/cli/index.ts --outfile dist/mc",
-    "test": "bun test"
+    "test": "bun test",
+    "build:vercel": "bun build src/vercel.ts --target=node --format=esm --outfile=api/index.mjs"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0"
   }
 }

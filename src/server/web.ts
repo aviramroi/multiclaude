@@ -97,7 +97,7 @@ PORT=4747 bun run server              <span class="c"># SQLite file, one process
   )
 }
 
-export function claimPage(opts: { code: string; user: string; created: string; claimed?: string | null; step: "email" | "code" | "done"; email?: string; error?: string; host: string }) {
+export function claimPage(opts: { code: string; user: string; created: string; claimed?: string | null; step: "email" | "code" | "done"; email?: string; error?: string; host: string; otp?: boolean }) {
   const { code, user, created, step, email, error } = opts
   let body: string
   if (opts.claimed) {
@@ -106,8 +106,8 @@ export function claimPage(opts: { code: string; user: string; created: string; c
     body = `<h1>Approve this machine?</h1>
 <p>An agent running as <b>${esc(user)}</b> asked to create a multiclaude account on ${esc(opts.host)} (${esc(created)}).</p>
 <dl class="kv"><dt>Machine</dt><dd>${esc(user)}</dd><dt>Can do</dt><dd>push &amp; pull sessions it has share keys for</dd><dt>Cannot do</dt><dd>read other people's sessions, change your email, delete anything</dd></dl>
-<form method="post" action="/claim/${esc(code)}/start"><label>Your email — we send a 6-digit code</label><input name="email" type="email" required autofocus placeholder="you@company.com" value="${esc(email)}">
-${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Send code</button></p></form>`
+<form method="post" action="/claim/${esc(code)}/start"><label>Your email${opts.otp ? " — we send a 6-digit code" : ""}</label><input name="email" type="email" required autofocus placeholder="you@company.com" value="${esc(email)}">
+${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">${opts.otp ? "Send code" : "Approve this machine"}</button></p></form>`
   } else if (step === "code") {
     body = `<h1>Enter the code</h1><p>Sent to <b>${esc(email)}</b>. It expires in 10 minutes.</p>
 <form method="post" action="/claim/${esc(code)}/verify"><input type="hidden" name="email" value="${esc(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus placeholder="123456">

@@ -122,7 +122,7 @@ async function main() {
     }
 
     case "push": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       const path = await adapter.sessionPath(cwd, id)
       const r = await push({ id, transcriptPath: path, name: flags.name, remote: pRemote, cwd, link: flags.link, shareKey: pKey, adapter: agentName })
       const t = await tracked(id)
@@ -135,7 +135,7 @@ async function main() {
     case "pull": {
       if (!args[0]) throw new Error("usage: mc pull <session>")
       const ref = parseSessionRef(args[0])
-      const id = await resolveLocal(cwd, ref.id, agentName)
+      const id = await resolveLocal(cwd, ref.id, agentName, { url: pRemote, shareKey: pKey })
       const r = await pull({ id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link, adapter: flags.agent })
       console.log(`pulled ${r.added} new entries → ${r.path} (head ${r.head})`)
       if (r.diverged) console.log("⚠ diverged branches present")
@@ -153,7 +153,7 @@ async function main() {
     }
 
     case "share": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       let t = await tracked(id)
       if (!t?.shareKey) {
         const { api } = await client(pRemote)
@@ -166,14 +166,14 @@ async function main() {
 
     case "link":
     case "unlink": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       await track(id, { linked: cmd === "link", cwd })
       console.log(`${cmd}ed ${id}${cmd === "link" ? " — hooks will auto push on Stop / pull on SessionStart" : ""}`)
       return
     }
 
     case "live": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       let path = await adapter.sessionPath(cwd, id)
       const t = await tracked(id)
       if (!t) {
@@ -198,7 +198,7 @@ async function main() {
     }
 
     case "log": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       const ad = getAdapter((await tracked(id))?.adapter ?? agentName)
       const entries = await readTranscript(await ad.sessionPath(cwd, id))
       for (const e of entries) {
@@ -209,7 +209,7 @@ async function main() {
     }
 
     case "status": {
-      const id = await resolveLocal(cwd, args[0], agentName)
+      const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
       const t = await tracked(id)
       const ad = getAdapter(t?.adapter ?? agentName)
       const path = await ad.sessionPath(cwd, id)
@@ -313,7 +313,7 @@ async function main() {
       } else {
         if (!args[0]) throw new Error("usage: mc open <name|id|url> | mc open --new <name>")
         const ref = parseSessionRef(args[0])
-        id = await resolveLocal(cwd, ref.id, agentName)
+        id = await resolveLocal(cwd, ref.id, agentName, { url: pRemote, shareKey: pKey })
         const r = await pull({ id, cwd, remote: ref.remote ?? remote, shareKey: ref.key ?? flags.key ?? proj?.cfg.shareKey, link: true, adapter: flags.agent })
         ad = getAdapter(r.adapter)
         console.log(`pulled ${r.added} new entries [${ad.name}]`)
@@ -329,7 +329,7 @@ async function main() {
     }
 
     case "daemon": {
-      const id = await resolveLocal(cwd, args[1], agentName)
+      const id = await resolveLocal(cwd, args[1], agentName, { url: pRemote, shareKey: pKey })
       if (args[0] === "stop") return console.log((await stopLiveDaemon(id)) ? `stopped live daemon for ${id}` : "no daemon running")
       const pid = await liveDaemonPid(id)
       return console.log(pid ? `live daemon running (pid ${pid})` : "no daemon running")

@@ -39,42 +39,69 @@ export async function live(opts: { id: string; path: string; cwd: string; readon
     }
   }
 
-  let ws: WebSocket
+  let ws: WebSocket | null = null
   let cursor = t?.cursor ?? 0
   let pending = ""
+  const useWs = await api.supportsWs(opts.id)
+
+  /** apply entries that arrived from the remote (either transport) */
+  const applyRemote = async (entries: WireEntry[]) => {
+    const fresh = entries.filter((e) => !seen.has(e.id))
+    for (const e of fresh) seen.add(e.id)
+    if (fresh.length && !opts.readonly) {
+      await appendLines(opts.path, fresh.map((e) => localize(e.raw, opts.cwd, opts.id)))
+      offset = (await stat(opts.path)).size // we wrote it; don't re-ship it
+    }
+    for (const e of fresh) if (e.author !== cfg.user || opts.readonly) printEntry(e)
+    const head = Math.max(cursor, ...entries.map((e) => e.seq ?? 0))
+    if (head !== cursor) {
+      cursor = head
+      await track(opts.id, { cursor })
+    }
+  }
+
+  /** long-poll transport for hosts without WebSockets (Vercel) */
+  const pollLoop = async () => {
+    console.log(c.dim(`● live ${opts.readonly ? "(watch)" : ""} ${opts.id} as @${cfg.user} — long polling, ctrl-c to stop`))
+    for (;;) {
+      try {
+        const { entries } = await api.pullEntries(opts.id, cursor, 25)
+        await applyRemote(entries)
+      } catch (e) {
+        console.log(c.dim(`● poll error: ${(e as Error).message}; retrying`))
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+    }
+  }
+  const ship = async (out: WireEntry[]) => {
+    if (useWs) {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "entries", entries: out }))
+      else for (const e of out) seen.delete(e.id) // retry on next drain
+    } else {
+      await api.pushEntries(opts.id, out).catch(() => { for (const e of out) seen.delete(e.id) })
+    }
+  }
 
   const connect = () => {
-    ws = new WebSocket(api.wsUrl(opts.id, cursor))
-    ws.onopen = () => {
+    const sock = new WebSocket(api.wsUrl(opts.id, cursor))
+    ws = sock
+    sock.onopen = () => {
       console.log(c.dim(`● live ${opts.readonly ? "(watch)" : ""} ${opts.id} as @${cfg.user} — ctrl-c to stop`))
-      ws.send(JSON.stringify({ type: "sync", after: cursor }))
+      sock.send(JSON.stringify({ type: "sync", after: cursor }))
       if (!opts.readonly) void drainLocal()
     }
-    ws.onmessage = async (ev) => {
+    sock.onmessage = async (ev) => {
       const msg = JSON.parse(String(ev.data))
-      if (msg.type === "entries") {
-        const fresh: WireEntry[] = msg.entries.filter((e: WireEntry) => !seen.has(e.id))
-        for (const e of fresh) seen.add(e.id)
-        if (fresh.length && !opts.readonly) {
-          const lines = fresh.map((e) => localize(e.raw, opts.cwd, opts.id))
-          await appendLines(opts.path, lines)
-          offset = (await stat(opts.path)).size // we wrote it; don't re-ship it
-        }
-        for (const e of fresh) if (e.author !== cfg.user || opts.readonly) printEntry(e)
-        const head = Math.max(cursor, ...fresh.map((e) => e.seq ?? 0))
-        if (head !== cursor) {
-          cursor = head
-          await track(opts.id, { cursor })
-        }
-      } else if (msg.type === "presence") {
+      if (msg.type === "entries") await applyRemote(msg.entries)
+      else if (msg.type === "presence") {
         console.log(c.yellow(`◦ @${msg.user} ${msg.event === "join" ? "joined" : "left"} (${msg.count} online)`))
       }
     }
-    ws.onclose = () => {
+    sock.onclose = () => {
       console.log(c.dim("● disconnected, retrying in 2s"))
       setTimeout(connect, 2000)
     }
-    ws.onerror = () => {}
+    sock.onerror = () => {}
   }
 
   /** Read bytes appended locally since `offset` and ship complete lines. */
@@ -104,10 +131,11 @@ export async function live(opts: { id: string; path: string; cwd: string; readon
         out.push(e)
       }
     }
-    if (out.length && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "entries", entries: out }))
+    if (out.length) await ship(out)
   }
 
-  connect()
+  if (useWs) connect()
+  else void pollLoop()
   if (!opts.readonly) {
     // fs.watch can miss events on some platforms; poll as a safety net.
     try {
@@ -115,6 +143,6 @@ export async function live(opts: { id: string; path: string; cwd: string; readon
     } catch {}
     setInterval(() => void drainLocal(), 500)
   }
-  setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "ping" })), 25000)
+  if (useWs) setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "ping" })), 25000)
   await new Promise(() => {})
 }
