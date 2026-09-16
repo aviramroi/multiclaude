@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util"
 import { basename } from "node:path"
-import { getAdapter } from "../core/adapters"
+import { getAdapter, detectAdapter, adapters } from "../core/adapters"
 import { loadConfig, saveConfig, loadState, saveState } from "../core/config"
 import { Client } from "../core/client"
 import { leaves, readTranscript, summarize } from "../core/transcript"
@@ -9,6 +9,7 @@ import { client, pull, push, resolveLocal, tracked, track } from "./sync"
 import { live, printEntry } from "./live"
 import { findProjectConfig, writeProjectConfig, PROJECT_FILE, type ProjectConfig } from "../core/project"
 import { startLiveDaemon, stopLiveDaemon, liveDaemonPid } from "./daemon"
+import { setupHooks } from "./setup"
 
 const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude Code sessions
 
@@ -28,7 +29,10 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
   mc hook                                 (internal) handler for Claude Code hooks, reads stdin JSON
   mc daemon stop <session>                stop a background live daemon
 
+  mc setup claude|codex                   merge multiclaude hooks into ~/.claude/settings.json or ~/.codex/hooks.json
+
   refs: full id, unique prefix, name given at push, or "latest"
+  --agent claude|codex  pick the harness (default from .multiclaude.json "agent", else claude)
   env:  MULTICLAUDE_REMOTE, MULTICLAUDE_HOME, MULTICLAUDE_USER
 `
 
@@ -47,13 +51,13 @@ const { values: flags, positionals } = parseArgs({
     mode: { type: "string" },
     new: { type: "string" },
     "no-inject": { type: "boolean" },
+    agent: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 })
 
 const [cmd, ...args] = positionals
 const cwd = flags.cwd ?? process.cwd()
-const adapter = getAdapter("claude")
 
 function parseSessionRef(ref: string): { id: string; remote?: string; key?: string } {
   // mc clone https://host/sessions/<id>?key=K   or   https://host/s/<id>#K   or   <id>
@@ -72,6 +76,8 @@ async function main() {
   const proj = await findProjectConfig(cwd)
   const pRemote = flags.remote ?? proj?.cfg.remote
   const pKey = flags.key ?? proj?.cfg.shareKey
+  const agentName = flags.agent ?? proj?.cfg.agent ?? "claude"
+  const adapter = getAdapter(agentName)
 
   switch (cmd) {
     case "login": {
@@ -95,9 +101,9 @@ async function main() {
     }
 
     case "push": {
-      const id = await resolveLocal(cwd, args[0])
-      const path = adapter.sessionPath(cwd, id)
-      const r = await push({ id, transcriptPath: path, name: flags.name, remote: pRemote, cwd, link: flags.link, shareKey: pKey })
+      const id = await resolveLocal(cwd, args[0], agentName)
+      const path = await adapter.sessionPath(cwd, id)
+      const r = await push({ id, transcriptPath: path, name: flags.name, remote: pRemote, cwd, link: flags.link, shareKey: pKey, adapter: agentName })
       const t = await tracked(id)
       console.log(`pushed ${r.added} new / ${r.total} entries → ${t?.remote}/sessions/${id} (head ${r.head})`)
       if (r.diverged) console.log("⚠ session has diverged branches; the latest leaf wins on resume")
@@ -108,25 +114,25 @@ async function main() {
     case "pull": {
       if (!args[0]) throw new Error("usage: mc pull <session>")
       const ref = parseSessionRef(args[0])
-      const id = await resolveLocal(cwd, ref.id)
-      const r = await pull({ id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link })
+      const id = await resolveLocal(cwd, ref.id, agentName)
+      const r = await pull({ id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link, adapter: flags.agent })
       console.log(`pulled ${r.added} new entries → ${r.path} (head ${r.head})`)
       if (r.diverged) console.log("⚠ diverged branches present")
-      console.log(`resume: ${adapter.resumeCommand(id)}`)
+      console.log(`resume: ${getAdapter(r.adapter).resumeCommand(id)}`)
       return
     }
 
     case "clone": {
       if (!args[0]) throw new Error("usage: mc clone <url|id> [--key K]")
       const ref = parseSessionRef(args[0])
-      const r = await pull({ id: ref.id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link ?? true })
+      const r = await pull({ id: ref.id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link ?? true, adapter: flags.agent })
       console.log(`cloned ${r.added} entries → ${r.path}`)
-      console.log(`\n  ${adapter.resumeCommand(ref.id)}\n`)
+      console.log(`\n  ${getAdapter(r.adapter).resumeCommand(ref.id)}\n`)
       return
     }
 
     case "share": {
-      const id = await resolveLocal(cwd, args[0])
+      const id = await resolveLocal(cwd, args[0], agentName)
       let t = await tracked(id)
       if (!t?.shareKey) {
         const { api } = await client(pRemote)
@@ -139,21 +145,21 @@ async function main() {
 
     case "link":
     case "unlink": {
-      const id = await resolveLocal(cwd, args[0])
+      const id = await resolveLocal(cwd, args[0], agentName)
       await track(id, { linked: cmd === "link", cwd })
       console.log(`${cmd}ed ${id}${cmd === "link" ? " — hooks will auto push on Stop / pull on SessionStart" : ""}`)
       return
     }
 
     case "live": {
-      const id = await resolveLocal(cwd, args[0])
-      const path = adapter.sessionPath(cwd, id)
+      const id = await resolveLocal(cwd, args[0], agentName)
+      let path = await adapter.sessionPath(cwd, id)
       const t = await tracked(id)
       if (!t) {
         // first time: make sure the remote has it
-        if (await Bun.file(path).exists()) await push({ id, transcriptPath: path, remote: pRemote, cwd, shareKey: pKey })
-        else await pull({ id, cwd, remote: pRemote, shareKey: pKey })
-      }
+        if (await Bun.file(path).exists()) await push({ id, transcriptPath: path, remote: pRemote, cwd, shareKey: pKey, adapter: agentName })
+        else path = (await pull({ id, cwd, remote: pRemote, shareKey: pKey })).path
+      } else path = await getAdapter(t.adapter ?? agentName).sessionPath(cwd, id)
       await live({ id, path, cwd, remote: pRemote })
       return
     }
@@ -171,8 +177,8 @@ async function main() {
     }
 
     case "log": {
-      const id = await resolveLocal(cwd, args[0])
-      const entries = await readTranscript(adapter.sessionPath(cwd, id))
+      const id = await resolveLocal(cwd, args[0], agentName)
+      const entries = await readTranscript(await adapter.sessionPath(cwd, id))
       for (const e of entries) {
         const s = summarize(e.raw, 400)
         if (s) console.log(`${s.role === "user" ? "you   ▸" : "claude▸"} ${s.text}`)
@@ -181,13 +187,15 @@ async function main() {
     }
 
     case "status": {
-      const id = await resolveLocal(cwd, args[0])
-      const path = adapter.sessionPath(cwd, id)
-      const entries = await readTranscript(path)
+      const id = await resolveLocal(cwd, args[0], agentName)
       const t = await tracked(id)
+      const ad = getAdapter(t?.adapter ?? agentName)
+      const path = await ad.sessionPath(cwd, id)
+      const entries = await readTranscript(path)
       const lv = leaves(entries)
-      console.log(`session  ${id}${t?.name ? ` (${t.name})` : ""}`)
-      console.log(`local    ${entries.length} entries, ${lv.length} leaf${lv.length === 1 ? "" : " ⚠ diverged"}  ${path}`)
+      const shape = lv.length === 0 ? "linear log" : lv.length === 1 ? "1 leaf" : `${lv.length} leaves ⚠ diverged`
+      console.log(`session  ${id}${t?.name ? ` (${t.name})` : ""}  [${ad.name}]`)
+      console.log(`local    ${entries.length} entries, ${shape}  ${path}`)
       if (!t) return console.log("remote   not tracked (run: mc push)")
       const { api } = await client(t.remote)
       const s = await api.getSession(id, t.shareKey ?? pKey)
@@ -203,16 +211,17 @@ async function main() {
     case "ls": {
       if (flags.local) {
         const state = await loadState()
-        for (const s of await adapter.listSessions(cwd)) {
-          const t = state.sessions[s.id]
-          console.log(`${s.id}  ${new Date(s.mtime).toISOString().slice(0, 16)}  ${t ? (t.linked ? "linked" : "tracked") : ""} ${t?.name ?? ""}`)
-        }
+        for (const ad of flags.agent ? [adapter] : Object.values(adapters))
+          for (const s of await ad.listSessions(cwd)) {
+            const t = state.sessions[s.id]
+            console.log(`${s.id}  ${ad.name.padEnd(6)}  ${new Date(s.mtime).toISOString().slice(0, 16)}  ${t ? (t.linked ? "linked" : "tracked") : ""} ${t?.name ?? ""}`)
+          }
         return
       }
       const { api } = await client(pRemote)
       const list = await api.listSessions(pKey)
       if (flags.json) return console.log(JSON.stringify(list, null, 2))
-      for (const s of list) console.log(`${s.id}  ${String(s.entries).padStart(5)} entries  ${s.updated_at}  ${s.name ?? ""}`)
+      for (const s of list) console.log(`${s.id}  ${s.adapter.padEnd(6)}  ${String(s.entries).padStart(5)} entries  ${s.updated_at}  ${s.name ?? ""}`)
       return
     }
 
@@ -226,6 +235,7 @@ async function main() {
         shareAll: true,
         inject: flags["no-inject"] ? false : existing?.inject ?? true,
         shareKey: existing?.shareKey ?? crypto.randomUUID().replace(/-/g, "").slice(0, 20),
+        ...(flags.agent || existing?.agent ? { agent: (flags.agent ?? existing?.agent) as "claude" | "codex" } : {}),
       }
       const path = await writeProjectConfig(cwd, pc)
       console.log(`wrote ${path} (mode ${mode}). Commit it — teammates' hooks will sync automatically.`)
@@ -237,35 +247,54 @@ async function main() {
     case "open": {
       const remote = pRemote
       let id: string
+      let ad = adapter
       if (flags.new) {
+        if (ad.name === "codex") {
+          // Codex picks its own session id; hooks (mc setup codex) share it as soon as it starts.
+          console.log(`starting a new codex session in ${cwd}; hooks will share it (name it later with mc push --name)`)
+          const proc = Bun.spawn(ad.launch("", true), { cwd, stdio: ["inherit", "inherit", "inherit"] })
+          await proc.exited
+          return
+        }
         id = crypto.randomUUID()
-        await track(id, { linked: true, cwd, name: flags.new, remote: remote ?? (await client(remote)).api.base })
+        await track(id, { linked: true, cwd, name: flags.new, remote: remote ?? (await client(remote)).api.base, adapter: ad.name })
         const { api } = await client(remote)
-        await api.createSession(id, flags.new, "claude", proj?.cfg.shareKey)
+        await api.createSession(id, flags.new, ad.name, proj?.cfg.shareKey)
         console.log(`new shared session "${flags.new}" ${id}`)
       } else {
         if (!args[0]) throw new Error("usage: mc open <name|id|url> | mc open --new <name>")
         const ref = parseSessionRef(args[0])
-        id = await resolveLocal(cwd, ref.id)
-        const r = await pull({ id, cwd, remote: ref.remote ?? remote, shareKey: ref.key ?? flags.key ?? proj?.cfg.shareKey, link: true })
-        console.log(`pulled ${r.added} new entries`)
+        id = await resolveLocal(cwd, ref.id, agentName)
+        const r = await pull({ id, cwd, remote: ref.remote ?? remote, shareKey: ref.key ?? flags.key ?? proj?.cfg.shareKey, link: true, adapter: flags.agent })
+        ad = getAdapter(r.adapter)
+        console.log(`pulled ${r.added} new entries [${ad.name}]`)
       }
       const mode = flags.mode ?? proj?.cfg.mode ?? "turn"
       if (mode === "live") console.log(`live daemon pid ${await startLiveDaemon(id, cwd, remote)}`)
-      const claudeArgs = flags.new ? ["--session-id", id] : ["--resume", id]
-      const proc = Bun.spawn(["claude", ...claudeArgs], { cwd, stdio: ["inherit", "inherit", "inherit"] })
+      const proc = Bun.spawn(ad.launch(id, !!flags.new), { cwd, stdio: ["inherit", "inherit", "inherit"] })
       await proc.exited
       await stopLiveDaemon(id)
-      const r = await push({ id, transcriptPath: adapter.sessionPath(cwd, id), remote, cwd, shareKey: proj?.cfg.shareKey })
+      const r = await push({ id, transcriptPath: await ad.sessionPath(cwd, id), remote, cwd, shareKey: proj?.cfg.shareKey, adapter: ad.name })
       console.log(`pushed ${r.added} new entries on exit`)
       return
     }
 
     case "daemon": {
-      const id = await resolveLocal(cwd, args[1])
+      const id = await resolveLocal(cwd, args[1], agentName)
       if (args[0] === "stop") return console.log((await stopLiveDaemon(id)) ? `stopped live daemon for ${id}` : "no daemon running")
       const pid = await liveDaemonPid(id)
       return console.log(pid ? `live daemon running (pid ${pid})` : "no daemon running")
+    }
+
+    case "setup": {
+      const which = args[0]
+      if (!which) throw new Error("usage: mc setup claude|codex")
+      const mcPath = Bun.which("mc") ?? new URL("../../bin/mc", import.meta.url).pathname
+      const { file, added } = await setupHooks(which, mcPath)
+      console.log(added.length ? `added ${added.join(", ")} hooks → ${file}` : `hooks already present in ${file}`)
+      if (which === "codex") console.log("codex will ask you to trust the new hooks once on next start (or pass --dangerously-bypass-hook-trust in automation)")
+      if (which === "claude") console.log("(alternative: load the plugin with `claude --plugin-dir ~/multiclaude/plugin`)")
+      return
     }
 
     case "hook":
@@ -303,17 +332,18 @@ async function hook() {
   const mode = proj?.cfg.mode ?? "turn"
   const inject = proj?.cfg.inject ?? true
   const hasFile = await Bun.file(path).exists()
+  const agent = detectAdapter(path).name
 
   const doPull = async () => {
     // Nothing to pull for a brand-new local session the remote has never seen.
     if (!t && !hasFile) return null
-    return pull({ id, cwd: hcwd, remote, shareKey: t?.shareKey ?? proj?.cfg.shareKey, link: true }).catch((e) => {
+    return pull({ id, cwd: hcwd, remote, shareKey: t?.shareKey ?? proj?.cfg.shareKey, link: true, adapter: agent }).catch((e) => {
       if (!String(e).includes("404")) throw e
       return null
     })
   }
   const doPush = () =>
-    hasFile ? push({ id, transcriptPath: path, remote, cwd: hcwd, link: true, quiet: true, shareKey: proj?.cfg.shareKey }) : null
+    hasFile ? push({ id, transcriptPath: path, remote, cwd: hcwd, link: true, quiet: true, shareKey: proj?.cfg.shareKey, adapter: agent }) : null
   const note = (r: Awaited<ReturnType<typeof pull>> | null, eventName: string) => {
     if (!r?.added || !inject) return
     const lines = r.newEntries

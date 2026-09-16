@@ -23,6 +23,7 @@ export interface TrackedSession {
   linked: boolean // auto push/pull via hooks
   cwd: string
   name?: string
+  adapter?: string // claude | codex
 }
 
 export interface State {

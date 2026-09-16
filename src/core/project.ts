@@ -14,6 +14,8 @@ export interface ProjectConfig {
   inject: boolean
   /** default share key so teammates can pull sessions they did not create */
   shareKey?: string
+  /** default harness for mc open/push in this project (hooks detect it automatically) */
+  agent?: "claude" | "codex"
 }
 
 export const PROJECT_FILE = ".multiclaude.json"

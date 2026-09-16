@@ -2,7 +2,8 @@ import { mkdir } from "node:fs/promises"
 import { userInfo } from "node:os"
 import { Client } from "../core/client"
 import { loadConfig, saveConfig, loadState, saveState, type TrackedSession } from "../core/config"
-import { getAdapter } from "../core/adapters"
+import { getAdapter, detectAdapter } from "../core/adapters"
+import { dirname } from "node:path"
 import { appendLines, leaves, localize, readTranscript, type Entry, type WireEntry } from "../core/transcript"
 
 /** Authenticated client; registers a token on first use so `mc push` just works. */
@@ -38,7 +39,7 @@ export async function resolveLocal(cwd: string, ref?: string, adapterName = "cla
   const adapter = getAdapter(adapterName)
   const sessions = await adapter.listSessions(cwd)
   if (!ref || ref === "latest") {
-    if (!sessions.length) throw new Error(`no sessions found in ${adapter.projectDir(cwd)}`)
+    if (!sessions.length) throw new Error(`no ${adapter.name} sessions found for ${cwd}`)
     return sessions[0].id
   }
   const state = await loadState()
@@ -61,11 +62,13 @@ export async function push(opts: {
   link?: boolean
   quiet?: boolean
   shareKey?: string
+  adapter?: string
 }): Promise<PushResult> {
   const { api } = await client(opts.remote)
+  const agent = opts.adapter ?? detectAdapter(opts.transcriptPath).name
   const entries = await readTranscript(opts.transcriptPath)
   const t = await tracked(opts.id)
-  const session = await api.createSession(opts.id, opts.name ?? t?.name, "claude", opts.shareKey ?? t?.shareKey).catch(async (e) => {
+  const session = await api.createSession(opts.id, opts.name ?? t?.name, agent, opts.shareKey ?? t?.shareKey).catch(async (e) => {
     if (String(e).includes("409")) throw new Error(`session ${opts.id} exists remotely and you have no access`)
     throw e
   })
@@ -84,6 +87,7 @@ export async function push(opts: {
     shareKey: session.share_key ?? t?.shareKey,
     cwd: opts.cwd ?? t?.cwd ?? process.cwd(),
     name: opts.name ?? t?.name ?? session.name ?? undefined,
+    adapter: agent,
     ...(opts.link !== undefined ? { linked: opts.link } : {}),
     // if nothing new arrived from others our cursor is the head
     ...(t ? {} : { cursor: head }),
@@ -91,7 +95,7 @@ export async function push(opts: {
   return { added, head, total: entries.length, diverged: leaves(entries).length > 1 }
 }
 
-export interface PullResult { added: number; head: number; newEntries: Entry[]; diverged: boolean; path: string }
+export interface PullResult { added: number; head: number; newEntries: Entry[]; diverged: boolean; path: string; adapter: string }
 
 export async function pull(opts: {
   id: string
@@ -102,20 +106,21 @@ export async function pull(opts: {
   link?: boolean
 }): Promise<PullResult> {
   const { api } = await client(opts.remote)
-  const adapter = getAdapter(opts.adapter)
-  const path = adapter.sessionPath(opts.cwd, opts.id)
   const t = await tracked(opts.id)
   const key = opts.shareKey ?? t?.shareKey
   if (key) await api.join(opts.id, key).catch(() => {})
+  const info = await api.getSession(opts.id, key)
+  const adapter = getAdapter(opts.adapter ?? info.adapter ?? t?.adapter ?? "claude")
+  const path = await adapter.sessionPath(opts.cwd, opts.id)
   const local = await readTranscript(path)
   const localIds = new Set(local.map((e) => e.id))
   // Cursor is an optimisation; ids are the source of truth so a reset cursor is safe.
   const { entries, head } = await api.pullEntries(opts.id, t?.cursor ?? 0)
   const fresh = entries.filter((e) => !localIds.has(e.id))
-  await mkdir(adapter.projectDir(opts.cwd), { recursive: true })
+  await mkdir(dirname(path), { recursive: true })
   await appendLines(path, fresh.map((e) => localize(e.raw, opts.cwd, opts.id)))
-  const info = await api.getSession(opts.id, key)
   await track(opts.id, {
+    adapter: adapter.name,
     remote: api.base,
     cursor: head,
     cwd: opts.cwd,
@@ -124,5 +129,5 @@ export async function pull(opts: {
     ...(opts.link !== undefined ? { linked: opts.link } : {}),
   })
   const all = await readTranscript(path)
-  return { added: fresh.length, head, newEntries: fresh, diverged: leaves(all).length > 1, path }
+  return { added: fresh.length, head, newEntries: fresh, diverged: leaves(all).length > 1, path, adapter: adapter.name }
 }

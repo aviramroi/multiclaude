@@ -1,6 +1,6 @@
 # multiclaude
 
-git-style **push / pull** and **live multiplayer** for Claude Code sessions — across accounts and machines. Codex adapter next.
+git-style **push / pull** and **live multiplayer** for **Claude Code** and **Codex** sessions — across accounts and machines.
 
 ```
 you                              server (Bun + SQLite + WS)              teammate
@@ -48,12 +48,21 @@ mc live auth-refactor       # on both machines; two-way streaming of every trans
 mc watch <id>               # read-only live view, no local file
 ```
 
+## Codex
+```sh
+mc setup codex                         # merges SessionStart/UserPromptSubmit/Stop/SessionEnd → `mc hook` into ~/.codex/hooks.json
+cd ~/proj && mc init --agent codex     # (or add "agent": "codex" to .multiclaude.json)
+codex                                  # sessions in this dir are now shared, same as Claude
+mc open codex-demo                     # teammate: pull → `codex resume <id>` → push on exit
+```
+Codex rollouts (`~/.codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl`) are linear logs without uuids, so lines are identified by content hash; `session_meta.cwd` is rewritten on pull. Codex hooks use the same schema and payload as Claude Code's, so `mc hook` serves both. A session stays in its harness: Claude sessions are shared between Claude users, Codex between Codex users (no cross-harness translation).
+
 ## Design
 - A transcript is an append-only JSONL **DAG** (`uuid` → `parentUuid`). Sync = set union of lines; the server dedupes by id, so every operation is idempotent and safe to repeat.
 - Lines without a uuid (queue-ops, prompts) get a content hash id.
 - Server: `/auth/register`, `/sessions`, `/sessions/:id/{have,entries,join,ws}`. Access = owner, member, or `x-share-key`.
 - Pull rewrites `cwd` and `sessionId` so `claude --resume` works from any project path.
-- Adapters (`src/core/adapters.ts`) isolate harness specifics; `codex` is stubbed for `~/.codex/sessions`.
+- Adapters (`src/core/adapters.ts`) isolate harness specifics: session paths, launch/resume argv, hooks file. Hooks auto-detect the harness from `transcript_path`.
 
 ## Known limits
 - Claude Code loads the transcript once; teammates' lines appear after `claude --resume`. Live mode keeps files in sync in real time, not the in-memory conversation.

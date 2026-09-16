@@ -70,8 +70,15 @@ export function leaves(entries: Entry[]): Entry[] {
 export function localize(raw: string, cwd: string, sessionId: string): string {
   try {
     const obj = JSON.parse(raw)
+    // Claude Code: top-level fields on every line
     if ("cwd" in obj) obj.cwd = cwd
     if ("sessionId" in obj) obj.sessionId = sessionId
+    // Codex: only the session_meta line carries them
+    if (obj.type === "session_meta" && obj.payload) {
+      obj.payload.cwd = cwd
+      obj.payload.id = sessionId
+      obj.payload.session_id = sessionId
+    }
     return JSON.stringify(obj)
   } catch {
     return raw
@@ -86,6 +93,7 @@ export function summarize(raw: string, max = 160): { role: string; text: string 
   } catch {
     return null
   }
+  if (obj.type === "response_item") return summarizeCodex(obj, max)
   if (obj.type !== "user" && obj.type !== "assistant") return null
   const m = obj.message ?? {}
   const parts: string[] = []
@@ -104,4 +112,22 @@ export function summarize(raw: string, max = 160): { role: string; text: string 
   const text = parts.join(" ").replace(/\s+/g, " ").trim()
   if (!text) return null
   return { role: obj.type, text: text.length > max ? text.slice(0, max) + "…" : text }
+}
+
+function summarizeCodex(obj: any, max: number): { role: string; text: string } | null {
+  const p = obj.payload ?? {}
+  const parts: string[] = []
+  let role = "assistant"
+  if (p.type === "message") {
+    if (p.role === "developer" || p.role === "system") return null
+    role = p.role === "user" ? "user" : "assistant"
+    for (const c of p.content ?? []) if (c.type === "input_text" || c.type === "output_text") parts.push(c.text)
+  } else if (p.type === "function_call" || p.type === "custom_tool_call") {
+    parts.push(`⚙ ${p.name}(${String(p.arguments ?? p.input ?? "").slice(0, 80)})`)
+  } else return null
+  const text = parts.join(" ").replace(/\s+/g, " ").trim()
+  // Codex wraps user turns in tags; strip the noise
+  const clean = text.replace(/<\/?[a-z_]+>/g, "").trim()
+  if (!clean) return null
+  return { role, text: clean.length > max ? clean.slice(0, max) + "…" : clean }
 }
