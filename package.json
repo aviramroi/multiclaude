@@ -14,12 +14,14 @@
     "build:vercel": "bun build src/vercel.ts --target=node --format=esm --outfile=api/index.mjs"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2"
+    "@types/bun": "^1.4.2",
+    "@types/nodemailer": "^8.0.2"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0"
+    "@neondatabase/serverless": "^1.1.0",
+    "nodemailer": "^10.0.10"
   }
 }

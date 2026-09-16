@@ -70,6 +70,12 @@ export class Client {
     const res = await fetch(`${this.base}/sessions/${id}/ws`, { headers }).catch(() => null)
     return !!res && res.status !== 501
   }
+  adminMail(body: Record<string, string>) {
+    return this.req<{ ok: boolean; provider?: string; from?: string; test_sent_to?: string; cleared?: boolean }>("POST", "/admin/mail", body)
+  }
+  adminStatus() {
+    return this.req<{ admin: string; mail: { provider: string; from: string } | null }>("GET", "/admin/status")
+  }
   wsUrl(id: string, after: number) {
     const u = new URL(this.base)
     u.protocol = u.protocol === "https:" ? "wss:" : "ws:"

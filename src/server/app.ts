@@ -1,8 +1,8 @@
 import type { Store, User, Session, StoredEntry } from "./store"
 import type { WireEntry } from "../core/transcript"
-import { landing, claimPage, accountPage, signInPage, joinPage, agentInstructions, agentIndex, prompts, type AgentAction } from "./web"
+import { landing, claimPage, accountPage, signInPage, joinPage, agentInstructions, agentIndex, prompts, adminPage, type AgentAction } from "./web"
 import { installScript } from "./install"
-import { sendClaimCode, mailConfigured } from "./mail"
+import { sendClaimCode, sendMail, loadMailConfig, SMTP_PRESETS, type MailConfig } from "./mail"
 
 export const VERSION = "0.2.0"
 
@@ -47,10 +47,30 @@ export function createApp(opts: AppOptions) {
     const { share_key, ...rest } = s
     return { ...rest, ...(includeKey ? { share_key } : {}), head: h.head, entries: h.n }
   }
+  const mail = () => loadMailConfig(store)
   const issueOtp = async (email: string, host: string) => {
     const code = String(Math.floor(100000 + Math.random() * 900000))
     await store.setOtp(email, code, Date.now() + 10 * 60_000)
-    await sendClaimCode(email, code, host)
+    await sendClaimCode(await mail(), email, code, host)
+  }
+  /** the first person to approve a machine becomes the server admin */
+  const isAdmin = async (email: string | null) => !!email && (await store.getSetting("admin_email")) === email
+  const claimAdminIfFirst = async (email: string) => {
+    if (!(await store.getSetting("admin_email"))) await store.setSetting("admin_email", email)
+  }
+  const parseMailForm = (b: Record<string, string>): MailConfig => {
+    const provider = b.provider === "smtp" ? "smtp" : "resend"
+    const from = (b.from ?? "").trim()
+    if (!from) throw new Error("From address is required")
+    if (provider === "resend") {
+      if (!b.resendKey?.trim()) throw new Error("Resend API key is required")
+      return { provider, from, resendKey: b.resendKey.trim() }
+    }
+    const preset = SMTP_PRESETS[b.preset ?? ""]
+    const host = (b.smtpHost || preset?.host || "").trim()
+    if (!host) throw new Error("SMTP host is required")
+    const port = Number(b.smtpPort || preset?.port || 587)
+    return { provider, from, smtpHost: host, smtpPort: port, smtpUser: b.smtpUser?.trim() || undefined, smtpPass: b.smtpPass || undefined, smtpSecure: b.smtpSecure ? true : preset ? preset.secure : port === 465 }
   }
   const checkOtp = async (email: string, code: string) => {
     const row = await store.getOtp(email)
@@ -95,7 +115,7 @@ export function createApp(opts: AppOptions) {
 
     const text = (b: string) => new Response(b, { headers: { "content-type": "text/plain; charset=utf-8" } })
     if (path === "/agent" || path === "/agent.md") return text(agentIndex(base))
-    const am = path.match(/^\/agent\/(setup|share|catchup|live)$/)
+    const am = path.match(/^\/agent\/(setup|share|catchup|live|email)$/)
     if (am) return text(agentInstructions(base, am[1] as AgentAction))
     const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})(\/agent)?$/)
     if (joinM) {
@@ -109,15 +129,17 @@ export function createApp(opts: AppOptions) {
       const u = await store.userByClaim(claim[1])
       if (!u) return html(signInPage("That approval link is not valid."), 404)
       const created = new Date(u.created_at ?? Date.now()).toUTCString()
-      const common = { code: claim[1], user: u.name, created, claimed: u.email && u.claimed_at ? u.email : null, host: base, otp: mailConfigured() }
+      const mc = await mail()
+      const common = { code: claim[1], user: u.name, created, claimed: u.email && u.claimed_at ? u.email : null, host: base, otp: !!mc }
       if (!claim[2]) return html(claimPage({ ...common, step: "email" }))
       const body = await form(req)
       const email = (body.email ?? "").trim().toLowerCase()
       if (!validEmail(email)) return html(claimPage({ ...common, step: "email", email, error: "Enter a valid email." }), 400)
       if (claim[2] === "start") {
-        if (!mailConfigured()) {
-          // no mail provider: the approval link itself (handed over by the user's own agent) is the proof
+        if (!mc) {
+          // no mail provider yet: the approval link itself (handed over by the user's own agent) is the proof
           await store.claimUser(u.id, email)
+          await claimAdminIfFirst(email)
           return html(claimPage({ ...common, step: "done", email }), 200, await browserLogin(email, secure))
         }
         await issueOtp(email, base)
@@ -125,6 +147,7 @@ export function createApp(opts: AppOptions) {
       }
       if (!(await checkOtp(email, body.otp ?? ""))) return html(claimPage({ ...common, step: "code", email, error: "Wrong or expired code." }), 400)
       await store.claimUser(u.id, email)
+      await claimAdminIfFirst(email)
       return html(claimPage({ ...common, step: "done", email }), 200, await browserLogin(email, secure))
     }
 
@@ -133,7 +156,7 @@ export function createApp(opts: AppOptions) {
       if (path === "/account/start" && req.method === "POST") {
         const e = ((await form(req)).email ?? "").trim().toLowerCase()
         if (!validEmail(e)) return html(signInPage("Enter a valid email.", e), 400)
-        if (!mailConfigured()) return html(signInPage("Email sign-in is not enabled on this server. Open an approval link from `mc whoami` instead.", e), 400)
+        if (!(await mail())) return html(signInPage("Email sign-in is not enabled on this server yet. Open an approval link from `mc whoami` instead.", e), 400)
         await issueOtp(e, base)
         return html(signInPage(undefined, e, true))
       }
@@ -147,12 +170,43 @@ export function createApp(opts: AppOptions) {
       if (!email) return html(signInPage())
       const machines = await store.machinesByEmail(email)
       const sessions = await Promise.all((await store.sessionsByEmail(email)).map(async (s) => ({ ...(await withMeta(s, true)), share_key: s.share_key })))
-      return html(accountPage({ email, machines, sessions, host: base }))
+      return html(accountPage({ email, machines, sessions, host: base, admin: await isAdmin(email) }))
+    }
+
+    // ---- admin: mail provider, editable from the browser (admin = first approved email) or via mc admin ----
+    const user = await auth(req, url)
+    const shareKey = req.headers.get("x-share-key") ?? url.searchParams.get("key")
+    if (path.startsWith("/admin")) {
+      const email = (await browserUser(req)) ?? (user?.claimed_at ? (user.email ?? null) : null)
+      if (!(await isAdmin(email))) {
+        const anyAdmin = await store.getSetting("admin_email")
+        const msg = anyAdmin ? `admin only — sign in as ${anyAdmin.replace(/(.).*(@.*)/, "$1…$2")}, the first approved email` : "no admin yet — the first person to approve a machine becomes admin"
+        return req.headers.has("authorization") || (req.headers.get("accept") ?? "").includes("json") ? err(msg, 403) : html(signInPage(msg[0].toUpperCase() + msg.slice(1) + "."), 403)
+      }
+      const cur = await mail()
+      if (path === "/admin" && req.method === "GET") return html(adminPage({ host: base, cfg: cur, email: email! }))
+      if (path === "/admin/mail" && req.method === "POST") {
+        const isJson = (req.headers.get("content-type") ?? "").includes("json")
+        const b = isJson ? ((await req.json()) as Record<string, string>) : await form(req)
+        try {
+          if (b.action === "clear") {
+            await store.setSetting("mail", null)
+            return isJson ? json({ ok: true, cleared: true }) : redirect("/admin?ok=cleared")
+          }
+          const cfg = parseMailForm(b)
+          await sendMail(cfg, email!, "multiclaude: email is configured", `This is the test message from ${base}.\n\nProvider: ${cfg.provider}\nFrom: ${cfg.from}\n\nCodes for approving machines will now be emailed.`)
+          await store.setSetting("mail", JSON.stringify(cfg))
+          return isJson ? json({ ok: true, provider: cfg.provider, from: cfg.from, test_sent_to: email }) : redirect("/admin?ok=saved")
+        } catch (e) {
+          const msg = (e as Error).message
+          return isJson ? err(msg, 400) : html(adminPage({ host: base, cfg: cur, email: email!, error: msg, values: b }), 400)
+        }
+      }
+      if (path === "/admin/status") return json({ admin: email, mail: cur ? { provider: cur.provider, from: cur.from } : null })
+      return err("not found", 404)
     }
 
     // ---- API ----
-    const user = await auth(req, url)
-    const shareKey = req.headers.get("x-share-key") ?? url.searchParams.get("key")
 
     if (path === "/auth/register" && req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as { name?: string }

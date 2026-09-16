@@ -121,7 +121,7 @@ mc pull --all · mc branch &lt;name&gt; · mc ls · mc init --mode live</pre>
  * Plain-text instructions an AI agent follows — one page per action, each with exact commands, an exact
  * reply template, and a do-not list. Served at /agent/<action> and /j/<key>/agent.
  */
-export type AgentAction = "setup" | "share" | "catchup" | "live" | "join"
+export type AgentAction = "setup" | "share" | "catchup" | "live" | "join" | "email"
 export function agentInstructions(host: string, action: AgentAction = "setup", join?: { key: string; mode: "turn" | "live" }) {
   const P = prompts(host)
   const head = `# multiclaude — ${action} — instructions for the AI agent
@@ -192,6 +192,29 @@ It prints one line per session: name, +N new turns.
     <one bullet per session: "<name> — <N> new turns" (or "no new turns")>
     To continue any of them: type /resume here in Claude Code and pick it by name.
 `
+    case "email":
+      return `${head}
+This configures how the server emails approval codes. Only the server admin (the first approved email) can do it.
+
+## A. Ask the person — do not guess — for exactly these, one question:
+    • Which email account should send the codes? (Gmail, Outlook, iCloud, or a Resend API key)
+    • For Gmail/Outlook/iCloud: the email address and an APP PASSWORD (Gmail: myaccount.google.com/apppasswords).
+    • For Resend: the API key and a "from" address on their verified domain.
+Wait for their answer before running anything.
+
+## B. Run ONE of these (the server sends a test email and only saves if it works)
+    export PATH="$HOME/.multiclaude/bin:$PATH"
+    mc admin mail --preset gmail   --user them@gmail.com   --pass "<app password>"
+    mc admin mail --preset outlook --user them@outlook.com --pass "<app password>"
+    mc admin mail --preset icloud  --user them@icloud.com  --pass "<app password>"
+    mc admin mail --provider resend --key re_xxx --from "multiclaude <no-reply@their-domain.com>"
+    (turn off again: mc admin mail --off)
+
+## C. Reply to the person with exactly this, then stop:
+
+    Email is set up. I sent a test message to <their email> — check it arrived.
+    From now on, approving a computer requires the 6-digit code we email.
+`
     case "live":
       return `${head}
 ${ensure}
@@ -215,6 +238,7 @@ Each page is one action with exact commands and an exact reply template:
   ${host}/agent/share     share the current project → invite sentence
   ${host}/agent/catchup   fetch teammates' latest sessions
   ${host}/agent/live      turn on live streaming for the current project
+  ${host}/agent/email     (admin) configure how approval codes are emailed — Gmail/Outlook/iCloud app password or Resend
   ${host}/j/<key>/agent   join a teammate's project (creates the person's own copy of the latest session)
 
 Rules for all: never run \`mc open\`; never read transcripts into your context; sync is automatic via hooks, so never run mc push/pull except where a page says so.
@@ -247,7 +271,7 @@ ${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><b
   return page("Approve — multiclaude", `<div class="box">${body}</div>`)
 }
 
-export function accountPage(opts: { email: string; machines: { name: string; created_at: string }[]; sessions: { id: string; name: string | null; adapter: string; entries: number; updated_at: string; share_key: string; forked_from?: string | null }[]; host: string }) {
+export function accountPage(opts: { email: string; machines: { name: string; created_at: string }[]; sessions: { id: string; name: string | null; adapter: string; entries: number; updated_at: string; share_key: string; forked_from?: string | null }[]; host: string; admin?: boolean }) {
   const rows = opts.sessions
     .map((s) => {
       const invite = invitePrompt(opts.host, s.share_key, "turn")
@@ -265,7 +289,8 @@ ${rows || `<p class="lead">No sessions yet. Open your AI in a project and paste 
 <p class="hint" style="margin-top:18px">“Copy invite” gives you a sentence to send a teammate — they paste it into their AI.</p>
 <h2 style="font-size:20px">Catch up on your teammates' work</h2>
 <div class="copybox" style="font-size:15px">${esc(prompts(opts.host).catchup)}<button class="copy" data-copy="${esc(prompts(opts.host).catchup)}">Copy</button></div>
-<form method="post" action="/account/logout" style="margin-top:40px"><button class="btn sec">Sign out</button></form>`,
+${opts.admin ? `<p class="hint" style="margin-top:32px">You're the admin of this server · <a href="/admin">Email settings</a></p>` : ""}
+<form method="post" action="/account/logout" style="margin-top:24px"><button class="btn sec">Sign out</button></form>`,
   )
 }
 
@@ -285,5 +310,47 @@ export function joinPage(opts: { host: string; key: string; mode: "turn" | "live
 <p class="hint">Open Claude Code or Codex <b>in the project folder</b>, then paste this:</p>
 <div class="copybox" style="font-size:16px">${esc(prompt)}<button class="copy" data-copy="${esc(prompt)}">Copy</button></div>
 <p class="hint">Your AI will set everything up. If it's your first time you'll get one link to approve.</p></div>`,
+  )
+}
+
+export function adminPage(opts: { host: string; email: string; cfg: import("./mail").MailConfig | null; error?: string; values?: Record<string, string> }) {
+  const v = opts.values ?? {}
+  const cur = opts.cfg
+  const provider = v.provider ?? cur?.provider ?? "smtp"
+  const status = cur
+    ? `<p class="lead" style="font-size:16px"><span class="ok">●</span> Email is on — approval codes are sent via <b>${esc(cur.provider === "resend" ? "Resend" : `SMTP (${cur.smtpHost})`)}</b> from <b>${esc(cur.from)}</b>.</p>`
+    : `<p class="lead" style="font-size:16px"><span class="warn">●</span> Email is off — approval links work without a code. Set up a sender below to require verified emails.</p>`
+  return page(
+    "Email settings — multiclaude",
+    `<h1 style="font-size:30px;margin-top:40px">Email settings</h1>
+${status}
+${opts.error ? `<p class="warn">${esc(opts.error)}</p>` : ""}
+<form method="post" action="/admin/mail" class="box" style="margin:18px 0">
+<label>How should codes be sent?</label>
+<select name="provider" onchange="document.querySelectorAll('[data-p]').forEach(e=>e.style.display=e.dataset.p===this.value?'':'none')" style="width:100%;font:17px inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+ <option value="smtp" ${provider === "smtp" ? "selected" : ""}>My email account (Gmail, Outlook, iCloud, or any SMTP)</option>
+ <option value="resend" ${provider === "resend" ? "selected" : ""}>Resend (API key)</option>
+</select>
+<label>Send from</label><input name="from" required placeholder="you@gmail.com  or  multiclaude <no-reply@yourdomain.com>" value="${esc(v.from ?? cur?.from ?? opts.email)}">
+<div data-p="smtp" style="${provider === "smtp" ? "" : "display:none"}">
+ <label>Email provider</label>
+ <select name="preset" style="width:100%;font:17px inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+  <option value="gmail">Gmail / Google Workspace</option><option value="outlook">Outlook / Microsoft 365</option><option value="icloud">iCloud</option><option value="">Other (fill host & port below)</option>
+ </select>
+ <label>Username (usually your email)</label><input name="smtpUser" value="${esc(v.smtpUser ?? cur?.smtpUser ?? "")}" placeholder="you@gmail.com">
+ <label>Password / app password</label><input name="smtpPass" type="password" value="${esc(v.smtpPass ?? cur?.smtpPass ?? "")}" placeholder="Gmail: create an App Password at myaccount.google.com/apppasswords">
+ <details style="margin:10px 0 0;border:0;padding:0"><summary>Other provider: host & port</summary>
+ <label>SMTP host</label><input name="smtpHost" value="${esc(v.smtpHost ?? cur?.smtpHost ?? "")}" placeholder="smtp.example.com">
+ <label>Port</label><input name="smtpPort" value="${esc(v.smtpPort ?? cur?.smtpPort ?? "")}" placeholder="587">
+ <label><input type="checkbox" name="smtpSecure" style="width:auto" ${cur?.smtpSecure ? "checked" : ""}> Use TLS on connect (port 465)</label></details>
+</div>
+<div data-p="resend" style="${provider === "resend" ? "" : "display:none"}">
+ <label>Resend API key</label><input name="resendKey" type="password" value="${esc(v.resendKey ?? cur?.resendKey ?? "")}" placeholder="re_…">
+ <p class="hint">The “Send from” address must be on a domain you verified in Resend.</p>
+</div>
+<p style="margin-top:20px"><button class="btn block">Save and send me a test email</button></p>
+</form>
+${cur ? `<form method="post" action="/admin/mail"><input type="hidden" name="action" value="clear"><button class="btn sec">Turn email off</button></form>` : ""}
+<p class="hint" style="margin-top:24px">Prefer your AI to do it? Say: <code>Please configure multiclaude email by following ${esc(opts.host)}/agent/email exactly</code> — it will ask you for the details and run <code>mc admin mail</code>.</p>`,
   )
 }

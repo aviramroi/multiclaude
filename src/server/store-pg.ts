@@ -21,6 +21,7 @@ export function pgStore(url: string): Store {
       await sql`CREATE INDEX IF NOT EXISTS entries_session_seq ON entries(session_id, seq)`
       await sql`CREATE TABLE IF NOT EXISTS otps (email TEXT PRIMARY KEY, code TEXT NOT NULL, expires_at BIGINT NOT NULL, attempts INT NOT NULL DEFAULT 0)`
       await sql`CREATE TABLE IF NOT EXISTS browser_sessions (id TEXT PRIMARY KEY, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`
+      await sql`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`
     })())
   const row = <T>(r: Record<string, any>[]): T | null => (r[0] as T) ?? null
   const iso = (s: any): Session => ({ ...s, created_at: new Date(s.created_at).toISOString(), updated_at: new Date(s.updated_at).toISOString() })
@@ -70,5 +71,7 @@ export function pgStore(url: string): Store {
     deleteOtp: wrap(async (email) => { await sql`DELETE FROM otps WHERE email = ${email}` }),
     createBrowserSession: wrap(async (id, email) => { await sql`INSERT INTO browser_sessions (id, email) VALUES (${id}, ${email})` }),
     browserEmail: wrap(async (id) => row<{ email: string }>(await sql`SELECT email FROM browser_sessions WHERE id = ${id}`)?.email ?? null),
+    getSetting: wrap(async (k) => row<{ value: string | null }>(await sql`SELECT value FROM settings WHERE key = ${k}`)?.value ?? null),
+    setSetting: wrap(async (k, v) => { if (v === null) await sql`DELETE FROM settings WHERE key = ${k}`; else await sql`INSERT INTO settings (key, value) VALUES (${k}, ${v}) ON CONFLICT (key) DO UPDATE SET value = ${v}` }),
   }
 }

@@ -17,6 +17,7 @@ export function sqliteStore(path: string): Store {
     CREATE INDEX IF NOT EXISTS entries_session_seq ON entries(session_id, seq);
     CREATE TABLE IF NOT EXISTS otps (email TEXT PRIMARY KEY, code TEXT NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS browser_sessions (id TEXT PRIMARY KEY, email TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
   `)
   try { db.exec("ALTER TABLE sessions ADD COLUMN forked_from TEXT") } catch {}
   const U = "id, name, email, claim_code, claimed_at, created_at"
@@ -76,5 +77,7 @@ export function sqliteStore(path: string): Store {
     async deleteOtp(email) { db.query("DELETE FROM otps WHERE email = ?").run(email) },
     async createBrowserSession(id, email) { db.query("INSERT INTO browser_sessions (id, email) VALUES (?, ?)").run(id, email) },
     async browserEmail(id) { return db.query<{ email: string }, [string]>("SELECT email FROM browser_sessions WHERE id = ?").get(id)?.email ?? null },
+    async getSetting(k) { return db.query<{ value: string | null }, [string]>("SELECT value FROM settings WHERE key = ?").get(k)?.value ?? null },
+    async setSetting(k, v) { if (v === null) db.query("DELETE FROM settings WHERE key = ?").run(k); else db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(k, v) },
   }
 }

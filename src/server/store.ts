@@ -32,4 +32,8 @@ export interface Store {
   deleteOtp(email: string): Promise<void>
   createBrowserSession(id: string, email: string): Promise<void>
   browserEmail(id: string): Promise<string | null>
+
+  /** server-wide settings (mail provider, admin) — configured from the web/CLI, not env */
+  getSetting(key: string): Promise<string | null>
+  setSetting(key: string, value: string | null): Promise<void>
 }

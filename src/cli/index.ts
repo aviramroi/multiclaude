@@ -33,6 +33,8 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
   mc hook                                 (internal) handler for Claude Code hooks, reads stdin JSON
   mc daemon stop <session>                stop a background live daemon
 
+  mc admin mail --preset gmail --user U --pass P [--from F]   configure how approval codes are emailed (admin only)
+  mc admin mail --provider resend --key K --from F            …or via Resend;  --off turns email off;  mc admin status
   mc setup claude|codex                   merge multiclaude hooks into ~/.claude/settings.json or ~/.codex/hooks.json
 
   refs: full id, unique prefix, name given at push, or "latest"
@@ -57,6 +59,14 @@ const { values: flags, positionals } = parseArgs({
     "no-inject": { type: "boolean" },
     agent: { type: "string" },
     all: { type: "boolean" },
+    provider: { type: "string" },
+    from: { type: "string" },
+    user: { type: "string" },
+    pass: { type: "string" },
+    host: { type: "string" },
+    port: { type: "string" },
+    preset: { type: "string" },
+    off: { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 })
@@ -371,6 +381,31 @@ async function main() {
       if (args[0] === "stop") return console.log((await stopLiveDaemon(id)) ? `stopped live daemon for ${id}` : "no daemon running")
       const pid = await liveDaemonPid(id)
       return console.log(pid ? `live daemon running (pid ${pid})` : "no daemon running")
+    }
+
+    case "admin": {
+      const { api } = await client(pRemote)
+      if (args[0] === "status") {
+        const st = await api.adminStatus()
+        return console.log(st.mail ? `email on: ${st.mail.provider} from ${st.mail.from} (admin ${st.admin})` : `email off (admin ${st.admin})`)
+      }
+      if (args[0] !== "mail") throw new Error("usage: mc admin mail … | mc admin status")
+      if (flags.off) {
+        await api.adminMail({ action: "clear" })
+        return console.log("email turned off — approval links work without a code")
+      }
+      const body: Record<string, string> = {
+        provider: flags.provider ?? (flags.key ? "resend" : "smtp"),
+        from: flags.from ?? flags.user ?? "",
+        resendKey: flags.key ?? "",
+        preset: flags.preset ?? (flags.host ? "" : "gmail"),
+        smtpUser: flags.user ?? "",
+        smtpPass: flags.pass ?? "",
+        smtpHost: flags.host ?? "",
+        smtpPort: flags.port ?? "",
+      }
+      const r = await api.adminMail(body)
+      return console.log(`email configured: ${r.provider} from ${r.from}. A test email was sent to ${r.test_sent_to}. Approvals now require the emailed code.`)
     }
 
     case "setup": {
