@@ -154,6 +154,8 @@ If the login said the machine is already approved, replace the second line with 
       return `${head}
 ${ensure}
 ## B. Share the folder you are currently working in
+First check: if the current folder is the person's home folder (~) or /, do NOT run mc init — ask them which
+project folder to share and cd there. Then:
     mc init
 It prints an "Invite for a teammate" sentence. Copy it exactly.
 
@@ -168,6 +170,7 @@ It prints an "Invite for a teammate" sentence. Copy it exactly.
       return `${head}
 ${ensure}
 ## B. Join — run INSIDE the folder the person wants to work in
+If the current folder is their home folder (~) or /, ask which project folder to use and cd there first.
     mc join ${host}/j/${join?.key ?? "<key>"}${join?.mode === "live" ? "?mode=live" : ""}
 This downloads the teammate's session and creates the person's OWN copy of it (a new session, same history).
 mc prints the copy's name.

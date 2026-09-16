@@ -1,4 +1,5 @@
-import { join, dirname } from "node:path"
+import { join, dirname, resolve } from "node:path"
+import { homedir } from "node:os"
 
 /**
  * Per-project config, committed alongside the code so every teammate's hooks
@@ -20,9 +21,17 @@ export interface ProjectConfig {
 
 export const PROJECT_FILE = ".multiclaude.json"
 
+/** Folders where a project config would capture far too much: never treat these as a shared project. */
+export function isTooBroad(dir: string): boolean {
+  const d = resolve(dir)
+  const home = resolve(homedir())
+  return d === home || d === "/" || d === dirname(home) || d === "/Users" || d === "/home"
+}
+
 export async function findProjectConfig(cwd: string): Promise<{ path: string; cfg: ProjectConfig } | null> {
   let dir = cwd
   for (;;) {
+    if (isTooBroad(dir)) return null // a config in ~ or / is ignored, so one file can't share everything
     const path = join(dir, PROJECT_FILE)
     const f = Bun.file(path)
     if (await f.exists()) {

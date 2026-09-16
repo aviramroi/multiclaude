@@ -7,7 +7,7 @@ import { Client } from "../core/client"
 import { leaves, readTranscript, summarize } from "../core/transcript"
 import { client, pull, push, branch, resolveLocal, tracked, track } from "./sync"
 import { live, printEntry } from "./live"
-import { findProjectConfig, writeProjectConfig, PROJECT_FILE, type ProjectConfig } from "../core/project"
+import { findProjectConfig, writeProjectConfig, isTooBroad, PROJECT_FILE, type ProjectConfig } from "../core/project"
 import { startLiveDaemon, stopLiveDaemon, liveDaemonPid } from "./daemon"
 import { setupHooks } from "./setup"
 
@@ -278,6 +278,8 @@ async function main() {
     }
 
     case "init": {
+      if (isTooBroad(cwd))
+        throw new Error(`refusing to share ${cwd}: that is your home folder, so every project under it would be shared. cd into one project folder and run mc init there.`)
       const { cfg } = await client(flags.remote)
       const existing = proj?.cfg
       const mode = (flags.mode as ProjectConfig["mode"]) ?? existing?.mode ?? "turn"
@@ -313,6 +315,7 @@ async function main() {
 
     case "join": {
       if (!args[0]) throw new Error("usage: mc join <invite-link>")
+      if (isTooBroad(cwd)) throw new Error(`refusing to join in ${cwd}: that is your home folder. cd into the project folder first.`)
       const u = new URL(args[0])
       const m = u.pathname.match(/^\/j\/([A-Za-z0-9]{8,64})$/)
       if (!m) throw new Error("not an invite link (expected …/j/<key>)")
