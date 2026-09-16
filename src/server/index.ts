@@ -1,9 +1,9 @@
 import type { ServerWebSocket } from "bun"
 import { openDb } from "./db"
 import type { WireEntry } from "../core/transcript"
-import { landing, claimPage, accountPage, signInPage } from "./web"
+import { landing, claimPage, accountPage, signInPage, joinPage } from "./web"
+import { installScript } from "./install"
 import { sendClaimCode } from "./mail"
-import { join } from "node:path"
 
 const PORT = Number(process.env.PORT ?? 4747)
 const db = openDb(process.env.MULTICLAUDE_DB ?? "multiclaude.db")
@@ -143,9 +143,12 @@ const server = Bun.serve<WsData>({
 
     // ---- web: landing, install script, claim flow, account ----
     if (path === "/" && req.method === "GET") return html(landing(base))
-    if (path === "/install.sh") {
-      const f = Bun.file(join(import.meta.dir, "../../scripts/install.sh"))
-      return new Response(await f.text().then((t) => t.replaceAll("__HOST__", base)), { headers: { "content-type": "text/x-shellscript" } })
+    if (path === "/install.sh") return new Response(installScript(base), { headers: { "content-type": "text/x-shellscript" } })
+    // invite link for a project: shows the paste-to-agent instructions; `mc join` reads the same params
+    const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})$/)
+    if (joinM) {
+      const n = db.query<{ n: number }, [string]>("SELECT count(*) n FROM sessions WHERE share_key = ?").get(joinM[1])!.n
+      return html(joinPage({ host: base, key: joinM[1], mode: url.searchParams.get("mode") === "live" ? "live" : "turn", sessions: n }))
     }
     const claim = path.match(/^\/claim\/([A-Za-z0-9_-]{8,64})(?:\/(start|verify))?$/)
     if (claim) {

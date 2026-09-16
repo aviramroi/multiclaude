@@ -6,7 +6,8 @@ export const CONFIG_DIR = process.env.MULTICLAUDE_HOME ?? join(homedir(), ".mult
 const CONFIG_PATH = join(CONFIG_DIR, "config.json")
 const STATE_PATH = join(CONFIG_DIR, "state.json")
 
-export const DEFAULT_REMOTE = process.env.MULTICLAUDE_REMOTE ?? "http://localhost:4747"
+export const HOSTED_REMOTE = "https://multiclaude.fly.dev"
+export const DEFAULT_REMOTE = process.env.MULTICLAUDE_REMOTE ?? HOSTED_REMOTE
 
 export interface Config {
   remote: string

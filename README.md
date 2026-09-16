@@ -9,35 +9,28 @@ you                              server (Bun + SQLite + WS)              teammat
       mc live  ◀════════════════ websocket room per session ════════════════▶  mc live / mc watch
 ```
 
-## Install
+## Install (no git, no runtimes)
 
 **Let your agent do it.** Paste into Claude Code or Codex:
 
-> Install multiclaude on this machine and connect it: run `curl -fsSL https://<your-server>/install.sh | bash`, then `mc login https://<your-server>`. Send me the approval link it prints and stop.
+> Set up multiclaude on this machine: run `curl -fsSL https://multiclaude.fly.dev/install.sh | bash` and then `mc login https://multiclaude.fly.dev`. Send me the approval link it prints and stop.
 
-The agent gets a working token immediately; you open the link, enter your email + a 6-digit code, and the machine is approved (Neon-style claimable signup). Nothing else is created without you.
+The script drops one static `mc` binary into `~/.multiclaude/bin` and wires the Claude Code / Codex hooks. The agent gets a working token immediately; you open the link, enter your email + a 6-digit code, and the machine is approved (Neon-style claimable signup). Nothing else is created without you.
 
-**By hand:**
+## Share a project — zero tokens, hooks do everything
 ```sh
-git clone https://github.com/aviramroi/multiclaude ~/multiclaude && cd ~/multiclaude && bun install
-ln -s ~/multiclaude/bin/mc ~/.local/bin/mc          # or: bun run build && cp dist/mc ~/.local/bin
-bun run server                                       # self-host, :4747 (PORT, MULTICLAUDE_DB, PUBLIC_URL, RESEND_API_KEY)
-mc login http://localhost:4747                       # prints the approval link
-mc setup claude && mc setup codex                    # hooks; or: claude --plugin-dir ~/multiclaude/plugin
+cd ~/proj && mc init                # prints an invite link  https://multiclaude.fly.dev/j/<key>
+claude                              # every session in this folder now syncs: push on Stop, pull on start/prompt
 ```
-The server also serves the landing page (`/`), `install.sh`, the claim flow (`/claim/<code>`) and a minimal account page (`/account`). Without `RESEND_API_KEY` the email code is printed to the server log.
-
-## Zero-token workflow (hooks do everything)
+Teammate (any account, any machine) pastes the invite link to their agent — or:
 ```sh
-cd ~/proj && mc init                # or: mc init --mode live   → writes .multiclaude.json, commit it
-claude                              # every session here is now shared: push on Stop, pull on start/prompt
-# teammate (any account, after git pull):
-mc ls                               # see the project's sessions
+cd ~/proj && mc join https://multiclaude.fly.dev/j/<key>
+mc ls                               # the team's sessions
 mc open <name|id>                   # pull → claude --resume → push on exit (live daemon in live mode)
 ```
-Hooks: `SessionStart`/`UserPromptSubmit` → pull, `Stop`/`SessionEnd` → push, live mode → background `mc live` daemon.
+Hooks: `SessionStart`/`UserPromptSubmit` → pull, `Stop`/`SessionEnd` → push, live mode (`mc init --mode live`) → background `mc live` daemon.
 Claude never spends a turn on sync; it only sees a compact `[multiclaude] N new turn(s)` note when teammates added something (disable with `mc init --no-inject`).
-From inside Claude, `! mc share` / `! mc status` run without a model turn.
+From inside Claude, `! mc invite` / `! mc status` run without a model turn.
 
 ## Turn-based (manual, like git)
 ```sh

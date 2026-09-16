@@ -15,7 +15,9 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
 
   mc login [url] [--token T] [--name N]   set remote (default http://localhost:4747), register/auth
   mc whoami                               machine identity + approval status
-  mc init [--mode turn|live|off]          write .multiclaude.json: hooks then sync every session here, zero tokens
+  mc init [--mode turn|live|off]          share every session in this folder; prints an invite link
+  mc join <invite-link>                   join a teammate's shared project in this folder (no git needed)
+  mc invite                               print this folder's invite link again
   mc open <name|id> | mc open --new <name>  pull → claude --resume → (live daemon) → push on exit
   mc push [session] [--name N] [--link]   push a local session (default: latest in this cwd)
   mc pull <session> [--key K] [--link]    pull a remote session into this cwd's Claude project
@@ -59,6 +61,13 @@ const { values: flags, positionals } = parseArgs({
 
 const [cmd, ...args] = positionals
 const cwd = flags.cwd ?? process.cwd()
+
+function inviteLink(pc: ProjectConfig) {
+  const u = new URL(`${pc.remote}/j/${pc.shareKey}`)
+  if (pc.mode === "live") u.searchParams.set("mode", "live")
+  if (pc.agent) u.searchParams.set("agent", pc.agent)
+  return u.toString()
+}
 
 function parseSessionRef(ref: string): { id: string; remote?: string; key?: string } {
   // mc clone https://host/sessions/<id>?key=K   or   https://host/s/<id>#K   or   <id>
@@ -251,9 +260,36 @@ async function main() {
         ...(flags.agent || existing?.agent ? { agent: (flags.agent ?? existing?.agent) as "claude" | "codex" } : {}),
       }
       const path = await writeProjectConfig(cwd, pc)
-      console.log(`wrote ${path} (mode ${mode}). Commit it — teammates' hooks will sync automatically.`)
-      console.log(`every session started in this directory now pushes on Stop and pulls on start/prompt.`)
-      if (mode === "live") console.log("live mode: a background daemon streams turns both ways while Claude runs.")
+      console.log(`shared: every ${pc.agent ?? "claude/codex"} session started in ${cwd} now syncs via hooks (${mode} mode).`)
+      console.log(`invite teammates (they paste it to their agent, or run mc join):\n  ${inviteLink(pc)}`)
+      console.log(`(config: ${path})`)
+      return
+    }
+
+    case "invite": {
+      if (!proj) throw new Error("this folder is not shared yet — run: mc init")
+      console.log(inviteLink(proj.cfg))
+      return
+    }
+
+    case "join": {
+      if (!args[0]) throw new Error("usage: mc join <invite-link>")
+      const u = new URL(args[0])
+      const m = u.pathname.match(/^\/j\/([A-Za-z0-9]{8,64})$/)
+      if (!m) throw new Error("not an invite link (expected …/j/<key>)")
+      const pc: ProjectConfig = {
+        remote: u.origin,
+        mode: u.searchParams.get("mode") === "live" ? "live" : "turn",
+        shareAll: true,
+        inject: true,
+        shareKey: m[1],
+        ...(u.searchParams.get("agent") ? { agent: u.searchParams.get("agent") as "claude" | "codex" } : {}),
+      }
+      await writeProjectConfig(cwd, pc)
+      const { api } = await client(pc.remote)
+      const list = await api.listSessions(pc.shareKey)
+      console.log(`joined — sessions started in ${cwd} now sync with the team (${pc.mode} mode).`)
+      console.log(list.length ? `${list.length} shared session(s) available: mc ls · mc open <name|id>` : "no sessions yet; start claude or codex here and they'll appear for everyone.")
       return
     }
 

@@ -46,11 +46,11 @@ const page = (title: string, body: string, desc = "") => `<!doctype html><html l
 <style>${CSS}</style></head><body><div class="wrap">
 <header><a class="logo" href="/">multi<b>claude</b></a><nav><a href="/#how">How it works</a><a href="/#install">Install</a><a href="https://github.com/aviramroi/multiclaude">GitHub</a><a href="/account">Account</a></nav></header>
 ${body}
-<footer>multiclaude — open source (MIT). Sessions are yours; self-host with one <code>bun run server</code>.</footer>
+<footer>multiclaude — open source (MIT), <a href="https://github.com/aviramroi/multiclaude">github.com/aviramroi/multiclaude</a>. Hosted for free at this address; self-host with one <code>bun run server</code>.</footer>
 </div><script>document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.parentElement.innerText.replace('copy','').trim());b.textContent='copied';setTimeout(()=>b.textContent='copy',1200)})</script></body></html>`
 
 export function landing(host: string) {
-  const agentPrompt = `Install multiclaude on this machine and connect it: run \`curl -fsSL ${host}/install.sh | bash\`, then \`mc login ${host}\`. Send me the approval link it prints and stop.`
+  const agentPrompt = `Set up multiclaude on this machine: run \`curl -fsSL ${host}/install.sh | bash\` and then \`mc login ${host}\`. Send me the approval link it prints and stop.`
   return page(
     "multiclaude — share Claude Code & Codex sessions like git",
     `
@@ -67,24 +67,26 @@ export function landing(host: string) {
 </div>
 
 <h2 id="install">Let your agent set it up — you only approve</h2>
-<p class="lead" style="font-size:16px">Paste this into Claude Code or Codex. The agent installs <code>mc</code>, registers this machine, and hands you one link. Nothing is created until you approve it.</p>
+<p class="lead" style="font-size:16px">Paste this into Claude Code or Codex. The agent downloads one small binary (no git, no runtimes, no config files), registers this machine, and hands you one link. Nothing is created until you approve it.</p>
 <pre class="wrap"><button class="copy">copy</button>${esc(agentPrompt)}</pre>
 <ol class="steps">
  <li><b>Agent installs and registers.</b> It gets a working token immediately and prints an approval link.</li>
  <li><b>You open the link, enter your email, type the 6-digit code.</b> That's the whole signup.</li>
- <li><b>Share a session.</b> <code>mc init</code> in a project, commit <code>.multiclaude.json</code>, and every session there syncs for the team.</li>
+ <li><b>Share a project.</b> Tell your agent “share this project with multiclaude” — it runs <code>mc init</code> and gives you an invite link.</li>
+ <li><b>Teammate pastes the link to their agent.</b> Their agent runs <code>mc join &lt;link&gt;</code>; from then on every session in that folder syncs both ways. No git involved.</li>
 </ol>
 
 <h2>Or do it by hand</h2>
-<pre><span class="c"># install (needs bun; the script installs it if missing)</span>
+<pre><span class="c"># install: one static binary into ~/.multiclaude/bin, hooks wired for Claude Code / Codex</span>
 curl -fsSL ${esc(host)}/install.sh | bash
 mc login ${esc(host)}                 <span class="c"># prints the approval link</span>
 
-<span class="c"># share a project</span>
-cd ~/proj && mc init && git add .multiclaude.json
+<span class="c"># share a project (you)</span>
+cd ~/proj && mc init                  <span class="c"># prints an invite link like ${esc(host)}/j/…</span>
 claude                                <span class="c"># or: codex — sessions here now sync via hooks</span>
 
-<span class="c"># teammate</span>
+<span class="c"># join it (teammate, any account, any machine)</span>
+cd ~/proj && mc join ${esc(host)}/j/&lt;key&gt;
 mc ls && mc open &lt;name&gt;             <span class="c"># pull → resume → push on exit</span></pre>
 
 <h2>Self-host</h2>
@@ -135,4 +137,17 @@ export function signInPage(error?: string, email?: string, sent = false) {
     ? `<h1>Enter the code</h1><p>Sent to <b>${esc(email)}</b>.</p><form method="post" action="/account/verify"><input type="hidden" name="email" value="${esc(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus>${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Sign in</button></p></form>`
     : `<h1>Sign in</h1><p>We email you a code — no password.</p><form method="post" action="/account/start"><label>Email</label><input name="email" type="email" required autofocus value="${esc(email)}">${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Send code</button></p></form>`
   return page("Sign in — multiclaude", `<div class="box">${body}</div>`)
+}
+
+export function joinPage(opts: { host: string; key: string; mode: "turn" | "live"; sessions: number }) {
+  const link = `${opts.host}/j/${opts.key}${opts.mode === "live" ? "?mode=live" : ""}`
+  const prompt = `Join a shared multiclaude project in this folder: if \`mc\` is missing run \`curl -fsSL ${opts.host}/install.sh | bash\` and \`mc login ${opts.host}\`; then run \`mc join ${link}\`, show me \`mc ls\`, and stop.`
+  return page(
+    "Join project — multiclaude",
+    `<div class="box"><h1>You've been invited to a shared project</h1>
+<p>${opts.sessions} session${opts.sessions === 1 ? "" : "s"} so far · ${opts.mode === "live" ? "live" : "turn-based"} mode.</p>
+<p>Open Claude Code or Codex <b>in the project folder</b> and paste:</p>
+<pre class="wrap"><button class="copy">copy</button>${esc(prompt)}</pre>
+<p style="font-size:14px">Or by hand: <code>mc join ${esc(link)}</code></p></div>`,
+  )
 }
