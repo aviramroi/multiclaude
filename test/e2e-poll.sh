@@ -13,7 +13,7 @@ PA="$T/A/.claude/projects/$(echo "$T/A/proj" | sed 's/[^a-zA-Z0-9]/-/g')"; mkdir
 line() { printf '{"parentUuid":%s,"type":"%s","message":{"role":"%s","content":"%s"},"uuid":"%s","timestamp":"2026-09-16T10:00:0%sZ","cwd":"%s","sessionId":"%s"}\n' "$1" "$2" "$2" "$3" "$4" "$5" "$6" "$SID"; }
 line null user "hello" u1 0 "$T/A/proj" > "$PA/$SID.jsonl"
 (cd "$T/A/proj" && mc A push --name poll >/dev/null)
-KEY=$(cd "$T/A/proj" && mc A share poll | sed 's/.*key=//')
+KEY=$(cd "$T/A/proj" && mc A share poll | grep -o 'key=[a-z0-9]*' | head -1 | sed 's/key=//')
 (cd "$T/B/proj" && mc B clone "$MULTICLAUDE_REMOTE/sessions/$SID?key=$KEY" >/dev/null)
 PB="$T/B/.claude/projects/$(echo "$T/B/proj" | sed 's/[^a-zA-Z0-9]/-/g')/$SID.jsonl"
 (cd "$T/B/proj" && mc B live poll >"$T/live-B.log" 2>&1 &); (cd "$T/A/proj" && mc A live poll >"$T/live-A.log" 2>&1 &); sleep 2

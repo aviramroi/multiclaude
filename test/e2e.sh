@@ -15,7 +15,7 @@ line() { printf '{"parentUuid":%s,"isSidechain":false,"type":"%s","message":{"ro
 { line null user "hello from A" u1 0 "$T/A/proj"; line '"u1"' assistant "hi A" a1 1 "$T/A/proj"; } > "$PA/$SID.jsonl"
 
 echo "== A push"; (cd "$T/A/proj" && mc A push --name demo --link)
-SHARE=$(cd "$T/A/proj" && mc A share demo | awk '{print $3}')
+SHARE=$(cd "$T/A/proj" && mc A share demo | grep -o 'link only: http[^ )]*' | sed 's/link only: //')
 echo "== B clone $SHARE"; (cd "$T/B/proj" && mc B clone "$SHARE")
 PB="$T/B/.claude/projects/$(echo "$T/B/proj" | sed 's/[^a-zA-Z0-9]/-/g')/$SID.jsonl"
 test "$(wc -l <"$PB")" -eq 2 || { echo "FAIL: B expected 2 lines"; cat "$PB"; exit 1; }
@@ -80,5 +80,16 @@ BR=$(ls "$PC3" | grep -v "$SID3" | sed 's/.jsonl//'); [ -n "$BR" ] || { echo "FA
 test "$(wc -l <"$PC3/$BR.jsonl")" -eq 2 || { echo "FAIL: branch history"; exit 1; }
 grep -q "\"sessionId\":\"$BR\"" "$PC3/$BR.jsonl" || { echo "FAIL: branch sessionId not rewritten"; exit 1; }
 (cd "$T/A/proj3" && mc A ls | grep -q "branch of root3") || { echo "FAIL: branch not listed"; (cd "$T/A/proj3" && mc A ls); exit 1; }
+SID=$SIDSAVE
+echo "== share one session: mc share → /s/<id> invite → teammate joins by session link"
+mkdir -p "$T/A/proj4" "$T/D/proj4"; SID4=55555555-2222-4333-8444-555555555555; PA4="$T/A/.claude/projects/$(echo "$T/A/proj4" | sed 's/[^a-zA-Z0-9]/-/g')"; mkdir -p "$PA4"
+SIDSAVE=$SID; SID=$SID4; { line null user "single share" s1 0 "$T/A/proj4"; } > "$PA4/$SID4.jsonl"
+OUT=$(cd "$T/A/proj4" && mc A share --name single 2>&1); SLINK=$(echo "$OUT" | grep -o "link only: http[^ )]*" | sed "s/link only: //")
+[ -n "$SLINK" ] || { echo "FAIL: no session link: $OUT"; exit 1; }
+curl -s "$SLINK" | grep -q "shared a session with you" || { echo "FAIL: session invite page"; exit 1; }
+AG=$(echo "$SLINK" | sed "s#?#/agent?#"); curl -s "$AG" | grep -q "mc join" || { echo "FAIL: session agent page"; exit 1; }
+OUT=$(cd "$T/D/proj4" && mc D join "$SLINK" 2>&1); echo "$OUT" | grep -q "your copy is ready" || { echo "FAIL: join by session link: $OUT"; exit 1; }
+[ ! -f "$T/D/proj4/.multiclaude.json" ] || { echo "FAIL: session join must not write project config"; exit 1; }
+(cd "$T/A/proj4" && mc A ls | grep -q "branch of single") || { echo "FAIL: owner cannot see the branch"; (cd "$T/A/proj4" && mc A ls); exit 1; }
 SID=$SIDSAVE
 echo; echo "ALL PASSED"

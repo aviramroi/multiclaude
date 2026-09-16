@@ -23,7 +23,7 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
   mc push [session] [--name N] [--link]   push a local session (default: latest in this cwd)
   mc pull <session> | mc pull --all       pull remote session(s) into this folder (then /resume in the editor)
   mc clone <url|id> [--key K]             pull + print the resume command
-  mc share <session>                      print the clone command a teammate needs
+  mc share [session]                      share ONE conversation (default: current) → invite sentence for a teammate
   mc link <session> / mc unlink <session> auto push on Stop / auto pull on SessionStart
   mc live [session]                       two-way real-time sync of this session (multiplayer)
   mc watch <session>                      read-only live view of a session
@@ -180,14 +180,14 @@ async function main() {
     }
 
     case "share": {
+      // share ONE conversation: push it (linked, so hooks keep it fresh) and print the invite sentence
       const id = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
-      let t = await tracked(id)
-      if (!t?.shareKey) {
-        const { api } = await client(pRemote)
-        const s = await api.getSession(id, pKey)
-        t = await track(id, { shareKey: s.share_key, remote: api.base })
-      }
-      console.log(`mc clone ${t.remote}/sessions/${id}?key=${t.shareKey}`)
+      const path = (await tracked(id))?.path ?? (await adapter.sessionPath(cwd, id))
+      const r = await push({ id, transcriptPath: path, name: flags.name, remote: pRemote, cwd, link: true, shareKey: pKey, adapter: agentName })
+      const t = (await tracked(id))!
+      const sentence = `Please join my teammate's shared session by following the instructions at ${t.remote}/s/${id}/agent?key=${t.shareKey} exactly — then tell me it's ready and how to open it, and stop.`
+      console.log(`shared this session (${r.total} turns; it keeps syncing via hooks).`)
+      console.log(`\nInvite for a teammate — send them this sentence to paste into their AI:\n  ${sentence}\n\n(link only: ${t.remote}/s/${id}?key=${t.shareKey})`)
       return
     }
 
@@ -317,8 +317,17 @@ async function main() {
       if (!args[0]) throw new Error("usage: mc join <invite-link>")
       if (isTooBroad(cwd)) throw new Error(`refusing to join in ${cwd}: that is your home folder. cd into the project folder first.`)
       const u = new URL(args[0])
-      const m = u.pathname.match(/^\/j\/([A-Za-z0-9]{8,64})$/)
-      if (!m) throw new Error("not an invite link (expected …/j/<key>)")
+      const sm = u.pathname.match(/^\/s\/([0-9a-f-]{36})(?:\/agent)?$/)
+      if (sm) {
+        // single-session invite: branch just that session; no project config is written
+        const k = u.searchParams.get("key") ?? undefined
+        const b = await branch({ from: sm[1], cwd, remote: u.origin, shareKey: k })
+        console.log(`your copy is ready: ${b.name} (${b.entries} turns of history).`)
+        console.log(`→ To continue it: in ${b.adapter === "codex" ? "Codex" : "Claude Code"} opened in this folder, type /resume and pick "${b.name}" (it's first in the list).`)
+        return
+      }
+      const m = u.pathname.match(/^\/j\/([A-Za-z0-9]{8,64})(?:\/agent)?$/)
+      if (!m) throw new Error("not an invite link (expected …/s/<id>?key=… or …/j/<key>)")
       const pc: ProjectConfig = {
         remote: u.origin,
         mode: u.searchParams.get("mode") === "live" ? "live" : "turn",
@@ -415,8 +424,9 @@ async function main() {
       const which = args[0]
       if (!which) throw new Error("usage: mc setup claude|codex")
       const mcPath = Bun.which("mc") ?? new URL("../../bin/mc", import.meta.url).pathname
-      const { file, added } = await setupHooks(which, mcPath)
+      const { file, added, allowed } = await setupHooks(which, mcPath)
       console.log(added.length ? `added ${added.join(", ")} hooks → ${file}` : `hooks already present in ${file}`)
+      if (allowed) console.log(`allowed \`mc\` commands to run without permission prompts in Claude Code (permissions.allow in ${file})`)
       if (which === "codex") console.log("codex will ask you to trust the new hooks once on next start (or pass --dangerously-bypass-hook-trust in automation)")
       if (which === "claude") console.log("(alternative: load the plugin with `claude --plugin-dir ~/multiclaude/plugin`)")
       return

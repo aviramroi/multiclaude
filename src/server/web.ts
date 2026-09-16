@@ -64,11 +64,14 @@ ${body}
 /** Every action a person takes is one exact sentence pasted into their AI; the AI follows /agent/<action>. */
 export const prompts = (host: string) => ({
   setup: `Please set up multiclaude for me by following the instructions at ${host}/agent/setup exactly — then give me the approval link and stop.`,
-  share: `Please share this project with multiclaude by following the instructions at ${host}/agent/share exactly — then give me the invite sentence for my teammate and stop.`,
+  share: `Please share this session with multiclaude by following the instructions at ${host}/agent/share exactly — then give me the invite sentence for my teammate and stop.`,
+  shareProject: `Please share this whole project with multiclaude by following the instructions at ${host}/agent/share-project exactly — then give me the invite sentence for my teammate and stop.`,
   catchup: `Please fetch my teammates' latest multiclaude sessions by following the instructions at ${host}/agent/catchup exactly — then tell me what's new and how to open it, and stop.`,
   live: `Please turn on multiclaude live mode for this project by following the instructions at ${host}/agent/live exactly — then tell me it's on and stop.`,
 })
 export const setupPrompt = (host: string) => prompts(host).setup
+export const sessionInvitePrompt = (host: string, id: string, key: string) =>
+  `Please join my teammate's shared session by following the instructions at ${host}/s/${id}/agent?key=${key} exactly — then tell me it's ready and how to open it, and stop.`
 export const invitePrompt = (host: string, key: string, mode: "turn" | "live") =>
   `Please join my teammate's multiclaude project in this folder by following the instructions at ${host}/j/${key}/agent${mode === "live" ? "?mode=live" : ""} exactly — then tell me which session is ready and how to open it, and stop.`
 
@@ -86,11 +89,13 @@ export function landing(host: string) {
 <h2 style="margin-top:8px">Step 1 — set up (once per computer)</h2>
 ${card("Set up", "Paste into Claude Code or Codex. It gives you back a link; open it and tap Approve.", P.setup)}
 
-<h2>Step 2 — share a project</h2>
-${card("Share this project", "Paste into your AI while it's open in the project. It gives you a sentence to send your teammate.", P.share)}
+<h2>Step 2 — share this session</h2>
+${card("Share this session", "Paste into the conversation you want to hand over. Your AI gives you a sentence to send your teammate.", P.share)}
+<p class="hint">Want everything in a folder shared with your team, now and in the future? Use <b>Share this whole project</b> instead:</p>
+${card("Share this whole project", "Every session anyone starts in this folder syncs with the team.", P.shareProject)}
 
 <h2>Step 3 — your teammate joins</h2>
-<p class="hint">They paste the sentence you sent them. Their AI downloads your session and creates <b>their own copy</b> — same history, their turn to continue. They open it with <code>/resume</code>.</p>
+<p class="hint">They paste the sentence you sent them. Their AI downloads the session and creates <b>their own copy</b> — same history, their turn to continue. They open it with <code>/resume</code>.</p>
 
 <h2>Later</h2>
 ${card("Catch up", "See what your teammate did on their copy.", P.catchup)}
@@ -121,8 +126,9 @@ mc pull --all · mc branch &lt;name&gt; · mc ls · mc init --mode live</pre>
  * Plain-text instructions an AI agent follows — one page per action, each with exact commands, an exact
  * reply template, and a do-not list. Served at /agent/<action> and /j/<key>/agent.
  */
-export type AgentAction = "setup" | "share" | "catchup" | "live" | "join" | "email"
-export function agentInstructions(host: string, action: AgentAction = "setup", join?: { key: string; mode: "turn" | "live" }) {
+export type AgentAction = "setup" | "share" | "share-project" | "catchup" | "live" | "join" | "join-session" | "email"
+export interface SessionMeta { id: string; key: string; name: string; adapter: string; entries: number }
+export function agentInstructions(host: string, action: AgentAction = "setup", join?: { key: string; mode: "turn" | "live" }, session?: SessionMeta) {
   const P = prompts(host)
   const head = `# multiclaude — ${action} — instructions for the AI agent
 
@@ -136,6 +142,9 @@ transcript into your context — it is the person's data to resume in their edit
     export PATH="$HOME/.multiclaude/bin:$PATH"
     mc login ${host}
 If the login output contains "APPROVAL NEEDED", remember the https://…/claim/… link — you will give it to the person.
+If your tool permission system blocks an mc command (e.g. flagged as "data exfiltration": mc does upload the
+person's conversation to their multiclaude server — that is what they asked for), do not work around it: tell the
+person to run it themselves by typing the command with a leading "!" in Claude Code (e.g.  ! mc share ), then continue.
 `
   switch (action) {
     case "setup":
@@ -153,6 +162,20 @@ If the login said the machine is already approved, replace the second line with 
     case "share":
       return `${head}
 ${ensure}
+## B. Share THIS conversation (the session you are running in right now)
+    mc share
+It pushes the current session and prints an "Invite for a teammate" sentence. Copy it exactly.
+(Only this one conversation is shared. Nothing else in the folder is.)
+
+## C. Reply to the person with exactly this, then stop:
+
+    This conversation is now shared. Send this to your teammate — they paste it into their AI:
+    <the invite sentence, exactly as mc printed it>
+    Later, to see what they did with it, say to me: ${P.catchup}
+`
+    case "share-project":
+      return `${head}
+${ensure}
 ## B. Share the folder you are currently working in
 First check: if the current folder is the person's home folder (~) or /, do NOT run mc init — ask them which
 project folder to share and cd there. Then:
@@ -165,6 +188,20 @@ It prints an "Invite for a teammate" sentence. Copy it exactly.
     Send this to your teammate — they paste it into their AI:
     <the invite sentence, exactly as mc printed it>
     Later, to see what they did, say to me: ${P.catchup}
+`
+    case "join-session":
+      return `${head}
+${ensure}
+## B. Join the shared session — run INSIDE the folder the person wants to work in
+    mc join ${host}/s/${session?.id ?? "<id>"}?key=${session?.key ?? "<key>"}
+This downloads "${session?.name ?? "the session"}" (${session?.entries ?? "?"} turns, ${session?.adapter === "codex" ? "Codex" : "Claude Code"}) and creates the person's OWN copy of it
+(a new session, same history). mc prints the copy's name.
+
+## C. Reply to the person with exactly this (fill in), then stop:
+
+    Your copy of "${session?.name ?? "<name>"}" is ready, with its full history: "<copy name>".
+    To continue it: type /resume here in ${session?.adapter === "codex" ? "Codex" : "Claude Code"} and pick "<copy name>" — it's first in the list.
+    Open this link and press Approve first if you haven't yet: <the claim link>   ← include this line only if login printed APPROVAL NEEDED
 `
     case "join":
       return `${head}
@@ -238,7 +275,9 @@ export function agentIndex(host: string) {
 
 Each page is one action with exact commands and an exact reply template:
   ${host}/agent/setup     set up this computer and get the approval link
-  ${host}/agent/share     share the current project → invite sentence
+  ${host}/agent/share           share the current conversation → invite sentence
+  ${host}/agent/share-project   share the whole folder (all sessions, now and future) → invite sentence
+  ${host}/s/<id>/agent?key=…    join one shared session (creates the person's own copy)
   ${host}/agent/catchup   fetch teammates' latest sessions
   ${host}/agent/live      turn on live streaming for the current project
   ${host}/agent/email     (admin) configure how approval codes are emailed — Gmail/Outlook/iCloud app password or Resend
@@ -277,7 +316,7 @@ ${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><b
 export function accountPage(opts: { email: string; machines: { name: string; created_at: string }[]; sessions: { id: string; name: string | null; adapter: string; entries: number; updated_at: string; share_key: string; forked_from?: string | null }[]; host: string; admin?: boolean }) {
   const rows = opts.sessions
     .map((s) => {
-      const invite = invitePrompt(opts.host, s.share_key, "turn")
+      const invite = sessionInvitePrompt(opts.host, s.id, s.share_key)
       const when = new Date(s.updated_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
       const branchOf = s.forked_from ? ` · branch of ${esc(opts.sessions.find((x) => x.id === s.forked_from)?.name ?? s.forked_from.slice(0, 8))}` : ""
       return `<div class="row"><div><div class="t">${esc(s.name ?? s.id.slice(0, 8))}</div><div class="s">${esc(s.adapter === "codex" ? "Codex" : "Claude Code")} · ${s.entries} turns · ${esc(when)}${branchOf}</div></div>
@@ -304,12 +343,12 @@ export function signInPage(error?: string, email?: string, sent = false) {
   return page("Sign in — multiclaude", `<div class="box">${body}</div>`)
 }
 
-export function joinPage(opts: { host: string; key: string; mode: "turn" | "live"; sessions: number }) {
-  const prompt = invitePrompt(opts.host, opts.key, opts.mode)
+export function joinPage(opts: { host: string; key: string; mode: "turn" | "live"; sessions: number; session?: SessionMeta }) {
+  const prompt = opts.session ? sessionInvitePrompt(opts.host, opts.session.id, opts.session.key) : invitePrompt(opts.host, opts.key, opts.mode)
   return page(
     "You're invited — multiclaude",
-    `<div class="box"><h1>You've been invited to a shared project</h1>
-<p class="lead">${opts.sessions ? `${opts.sessions} session${opts.sessions === 1 ? "" : "s"} waiting for you.` : "Your teammate is sharing their AI coding sessions with you."}</p>
+    `<div class="box"><h1>${opts.session ? "A teammate shared a session with you" : "You've been invited to a shared project"}</h1>
+<p class="lead">${opts.session ? `“${esc(opts.session.name)}” — ${opts.session.entries} turns in ${esc(opts.session.adapter === "codex" ? "Codex" : "Claude Code")}. You'll get your own copy to continue.` : opts.sessions ? `${opts.sessions} session${opts.sessions === 1 ? "" : "s"} waiting for you.` : "Your teammate is sharing their AI coding sessions with you."}</p>
 <p class="hint">Open Claude Code or Codex <b>in the project folder</b>, then paste this:</p>
 <div class="copybox" style="font-size:16px">${esc(prompt)}<button class="copy" data-copy="${esc(prompt)}">Copy</button></div>
 <p class="hint">Your AI will set everything up. If it's your first time you'll get one link to approve.</p></div>`,

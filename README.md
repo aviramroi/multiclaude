@@ -17,7 +17,14 @@ you                              server (Bun + SQLite + WS)              teammat
 
 The script drops one static `mc` binary into `~/.multiclaude/bin` and wires the Claude Code / Codex hooks. The agent gets a working token immediately; you open the link, enter your email + a 6-digit code, and the machine is approved (Neon-style claimable signup). Nothing else is created without you.
 
-## Share a project — zero tokens, hooks do everything
+## Share one conversation
+```sh
+mc share                            # pushes the current session, prints an invite sentence (…/s/<id>?key=…)
+# teammate: mc join <that link>     # creates their own copy (branch) → /resume
+```
+This is the default "hand this over" flow — only that conversation is shared.
+
+## Share a whole project — zero tokens, hooks do everything
 ```sh
 cd ~/proj && mc init                # prints an invite link  https://multiclaude-rouge.vercel.app/j/<key>
 claude                              # every session in this folder now syncs: push on Stop, pull on start/prompt

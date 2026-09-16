@@ -115,13 +115,24 @@ export function createApp(opts: AppOptions) {
 
     const text = (b: string) => new Response(b, { headers: { "content-type": "text/plain; charset=utf-8" } })
     if (path === "/agent" || path === "/agent.md") return text(agentIndex(base))
-    const am = path.match(/^\/agent\/(setup|share|catchup|live|email)$/)
+    const am = path.match(/^\/agent\/(setup|share|share-project|catchup|live|email)$/)
     if (am) return text(agentInstructions(base, am[1] as AgentAction))
     const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})(\/agent)?$/)
     if (joinM) {
       const mode = url.searchParams.get("mode") === "live" ? "live" : "turn"
       if (joinM[2]) return text(agentInstructions(base, "join", { key: joinM[1], mode }))
       return html(joinPage({ host: base, key: joinM[1], mode, sessions: await store.countByKey(joinM[1]) }))
+    }
+
+    // session invite: /s/<id>?key=K (page) and /s/<id>/agent?key=K (instructions)
+    const sm = path.match(/^\/s\/([0-9a-f-]{36})(\/agent)?$/)
+    if (sm) {
+      const sess = await store.session(sm[1])
+      const k = url.searchParams.get("key")
+      if (!sess || !k || k !== sess.share_key) return html(signInPage("That session link is not valid."), 404)
+      const meta = { id: sess.id, key: k, name: sess.name ?? sess.id.slice(0, 8), adapter: sess.adapter, entries: (await store.head(sess.id)).n }
+      if (sm[2]) return text(agentInstructions(base, "join-session", undefined, meta))
+      return html(joinPage({ host: base, key: k, mode: "turn", sessions: 1, session: meta }))
     }
 
     const claim = path.match(/^\/claim\/([A-Za-z0-9_-]{8,64})(?:\/(start|verify))?$/)
@@ -237,6 +248,11 @@ export function createApp(opts: AppOptions) {
         return json(await withMeta(existing, true))
       }
       await store.createSession({ id, name: body.name ?? null, owner: user.id, adapter: body.adapter ?? "claude", shareKey: body.share_key?.trim() || key(), forkedFrom: body.forked_from ?? null })
+      // the person whose session was branched should see the branch in their own list
+      if (body.forked_from) {
+        const src = await store.session(body.forked_from)
+        if (src && src.owner !== user.id) await store.addMember(id, src.owner)
+      }
       return json(await withMeta((await store.session(id))!, true), 201)
     }
 
