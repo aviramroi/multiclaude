@@ -18,6 +18,7 @@ export function sqliteStore(path: string): Store {
     CREATE TABLE IF NOT EXISTS otps (email TEXT PRIMARY KEY, code TEXT NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS browser_sessions (id TEXT PRIMARY KEY, email TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
   `)
+  try { db.exec("ALTER TABLE sessions ADD COLUMN forked_from TEXT") } catch {}
   const U = "id, name, email, claim_code, claimed_at, created_at"
   const q = {
     userByToken: db.query<User, [string]>(`SELECT ${U} FROM users WHERE token = ?`),
@@ -46,7 +47,7 @@ export function sqliteStore(path: string): Store {
     async claimUser(id, email) { db.query("UPDATE users SET email = ?, claimed_at = datetime('now') WHERE id = ?").run(email, id) },
     async machinesByEmail(email) { return db.query<{ name: string; created_at: string }, [string]>("SELECT name, created_at FROM users WHERE email = ? ORDER BY created_at").all(email) },
     async session(id) { return q.session.get(id) ?? null },
-    async createSession(s) { db.query("INSERT INTO sessions (id, name, owner, adapter, share_key) VALUES (?, ?, ?, ?, ?)").run(s.id, s.name, s.owner, s.adapter, s.shareKey) },
+    async createSession(s) { db.query("INSERT INTO sessions (id, name, owner, adapter, share_key, forked_from) VALUES (?, ?, ?, ?, ?, ?)").run(s.id, s.name, s.owner, s.adapter, s.shareKey, s.forkedFrom ?? null) },
     async sessionsFor(userId, key) {
       const mine = db.query<Session, [string, string]>(
         "SELECT s.* FROM sessions s WHERE s.owner = ?1 UNION SELECT s.* FROM sessions s JOIN members m ON m.session_id = s.id WHERE m.user_id = ?2",

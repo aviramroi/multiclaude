@@ -14,6 +14,7 @@ export function pgStore(url: string): Store {
       await sql`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, name TEXT, owner TEXT NOT NULL, adapter TEXT NOT NULL DEFAULT 'claude',
         share_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`
       await sql`CREATE INDEX IF NOT EXISTS sessions_share_key ON sessions(share_key)`
+      await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS forked_from TEXT`
       await sql`CREATE TABLE IF NOT EXISTS members (session_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (session_id, user_id))`
       await sql`CREATE TABLE IF NOT EXISTS entries (seq BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL, id TEXT NOT NULL, parent TEXT,
         type TEXT NOT NULL, ts TEXT, author TEXT NOT NULL, raw TEXT NOT NULL, UNIQUE (session_id, id))`
@@ -32,7 +33,7 @@ export function pgStore(url: string): Store {
     claimUser: wrap(async (id, email) => { await sql`UPDATE users SET email = ${email}, claimed_at = now() WHERE id = ${id}` }),
     machinesByEmail: wrap(async (email) => (await sql`SELECT name, created_at::text FROM users WHERE email = ${email} ORDER BY created_at`) as any),
     session: wrap(async (id) => { const r = row<any>(await sql`SELECT * FROM sessions WHERE id = ${id}`); return r && iso(r) }),
-    createSession: wrap(async (s) => { await sql`INSERT INTO sessions (id, name, owner, adapter, share_key) VALUES (${s.id}, ${s.name}, ${s.owner}, ${s.adapter}, ${s.shareKey})` }),
+    createSession: wrap(async (s) => { await sql`INSERT INTO sessions (id, name, owner, adapter, share_key, forked_from) VALUES (${s.id}, ${s.name}, ${s.owner}, ${s.adapter}, ${s.shareKey}, ${s.forkedFrom ?? null})` }),
     sessionsFor: wrap(async (uid, key) => {
       const rows = await sql`SELECT DISTINCT s.* FROM sessions s LEFT JOIN members m ON m.session_id = s.id
         WHERE s.owner = ${uid} OR m.user_id = ${uid} OR (${key}::text IS NOT NULL AND s.share_key = ${key}) ORDER BY s.updated_at DESC`

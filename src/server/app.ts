@@ -173,14 +173,14 @@ export function createApp(opts: AppOptions) {
     }
     if (path === "/sessions" && req.method === "POST") {
       if (!user) return err("unauthorized", 401)
-      const body = (await req.json().catch(() => ({}))) as { id?: string; name?: string; adapter?: string; share_key?: string }
+      const body = (await req.json().catch(() => ({}))) as { id?: string; name?: string; adapter?: string; share_key?: string; forked_from?: string }
       const id = body.id ?? rid()
       const existing = await store.session(id)
       if (existing) {
         if (!(await canAccess(existing, user, shareKey))) return err("session id taken", 409)
         return json(await withMeta(existing, true))
       }
-      await store.createSession({ id, name: body.name ?? null, owner: user.id, adapter: body.adapter ?? "claude", shareKey: body.share_key?.trim() || key() })
+      await store.createSession({ id, name: body.name ?? null, owner: user.id, adapter: body.adapter ?? "claude", shareKey: body.share_key?.trim() || key(), forkedFrom: body.forked_from ?? null })
       return json(await withMeta((await store.session(id))!, true), 201)
     }
 

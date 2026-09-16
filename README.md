@@ -24,10 +24,12 @@ claude                              # every session in this folder now syncs: pu
 ```
 Teammate (any account, any machine) pastes the invite link to their agent — or:
 ```sh
-cd ~/proj && mc join https://multiclaude-rouge.vercel.app/j/<key>
-mc ls                               # the team's sessions
-mc open <name|id>                   # pull → claude --resume → push on exit (live daemon in live mode)
+cd ~/proj && mc join https://multiclaude-rouge.vercel.app/j/<key>   # pulls + creates YOUR branch of the latest session
+# → type /resume in Claude Code (opened here) and pick it. Or in a terminal: mc open <name>
+mc ls                               # everyone's sessions and branches
+mc branch <name>                    # branch another shared session
 ```
+**Branches, not shared files.** Joining gives you your own copy of the session (new id, full history, `forked_from` set) — like `git branch`. Both of you keep working; each side's turns sync to its own branch, so nothing ever diverges or gets clobbered. The original owner pulls your branch (`mc pull --all`) and resumes it to see where you took it.
 Hooks: `SessionStart`/`UserPromptSubmit` → pull, `Stop`/`SessionEnd` → push, live mode (`mc init --mode live`) → background `mc live` daemon.
 Claude never spends a turn on sync; it only sees a compact `[multiclaude] N new turn(s)` note when teammates added something (disable with `mc init --no-inject`).
 From inside Claude, `! mc invite` / `! mc status` run without a model turn.

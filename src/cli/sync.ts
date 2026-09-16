@@ -143,3 +143,26 @@ export async function pull(opts: {
   const all = await readTranscript(path)
   return { added: fresh.length, head, newEntries: fresh, diverged: leaves(all).length > 1, path, adapter: adapter.name }
 }
+
+/**
+ * Branch a shared session: copy its transcript under a NEW session id in this folder, register it on the
+ * remote (same share key, forked_from = source) and return the id. Each participant works in their own
+ * branch — like git — so two people never write into the same session and nothing diverges.
+ */
+export async function branch(opts: { from: string; cwd: string; remote?: string; shareKey?: string; name?: string; adapter?: string }) {
+  const { api, cfg } = await client(opts.remote)
+  const src = await pull({ id: opts.from, cwd: opts.cwd, remote: opts.remote, shareKey: opts.shareKey, adapter: opts.adapter })
+  const adapter = getAdapter(src.adapter)
+  const id = crypto.randomUUID()
+  const path = await adapter.sessionPath(opts.cwd, id)
+  const entries = await readTranscript(src.path)
+  await mkdir(dirname(path), { recursive: true })
+  await Bun.write(path, entries.map((e) => localize(e.raw, opts.cwd, id)).join("\n") + "\n")
+  const info = await api.getSession(opts.from, opts.shareKey).catch(() => null)
+  const name = opts.name ?? `${info?.name ?? opts.from.slice(0, 8)} — ${cfg.user}`
+  await api.createSession(id, name, adapter.name, opts.shareKey, opts.from)
+  await track(id, { remote: api.base, shareKey: opts.shareKey, cwd: opts.cwd, linked: true, name, adapter: adapter.name, path, cursor: 0 })
+  // push the copied history so teammates can pull the branch immediately
+  await push({ id, transcriptPath: path, remote: opts.remote, cwd: opts.cwd, shareKey: opts.shareKey, adapter: adapter.name, name })
+  return { id, name, path, adapter: adapter.name, entries: entries.length, from: opts.from }
+}

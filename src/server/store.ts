@@ -1,7 +1,7 @@
 import type { WireEntry } from "../core/transcript"
 
 export interface User { id: string; name: string; email?: string | null; claim_code?: string | null; claimed_at?: string | null; created_at?: string }
-export interface Session { id: string; name: string | null; owner: string; adapter: string; share_key: string; created_at: string; updated_at: string }
+export interface Session { id: string; name: string | null; owner: string; adapter: string; share_key: string; forked_from?: string | null; created_at: string; updated_at: string }
 export type StoredEntry = WireEntry & { seq: number; author: string }
 
 /** Everything the HTTP app needs from a database. SQLite (Bun) and Postgres (Vercel/Neon) implement it. */
@@ -13,7 +13,7 @@ export interface Store {
   machinesByEmail(email: string): Promise<{ name: string; created_at: string }[]>
 
   session(id: string): Promise<Session | null>
-  createSession(s: { id: string; name: string | null; owner: string; adapter: string; shareKey: string }): Promise<void>
+  createSession(s: { id: string; name: string | null; owner: string; adapter: string; shareKey: string; forkedFrom?: string | null }): Promise<void>
   sessionsFor(userId: string, shareKey: string | null): Promise<Session[]>
   sessionsByEmail(email: string): Promise<Session[]>
   countByKey(shareKey: string): Promise<number>

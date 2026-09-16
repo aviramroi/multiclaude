@@ -5,7 +5,7 @@ import { getAdapter, detectAdapter, adapters } from "../core/adapters"
 import { loadConfig, saveConfig, loadState, saveState } from "../core/config"
 import { Client } from "../core/client"
 import { leaves, readTranscript, summarize } from "../core/transcript"
-import { client, pull, push, resolveLocal, tracked, track } from "./sync"
+import { client, pull, push, branch, resolveLocal, tracked, track } from "./sync"
 import { live, printEntry } from "./live"
 import { findProjectConfig, writeProjectConfig, PROJECT_FILE, type ProjectConfig } from "../core/project"
 import { startLiveDaemon, stopLiveDaemon, liveDaemonPid } from "./daemon"
@@ -16,7 +16,8 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
   mc login [url] [--token T] [--name N]   set remote (default http://localhost:4747), register/auth
   mc whoami                               machine identity + approval status
   mc init [--mode turn|live|off]          share every session in this folder; prints an invite link
-  mc join <invite-link>                   join a teammate's shared project in this folder (no git needed)
+  mc join <invite-link>                   join a shared project: pulls it and creates YOUR branch of the latest session
+  mc branch <session> [--name N]          start your own branch of a shared session (new id, same history)
   mc invite                               print this folder's invite link again
   mc open <name|id> | mc open --new <name>  pull → claude --resume → (live daemon) → push on exit
   mc push [session] [--name N] [--link]   push a local session (default: latest in this cwd)
@@ -260,7 +261,9 @@ async function main() {
       const { api } = await client(pRemote)
       const list = await api.listSessions(pKey)
       if (flags.json) return console.log(JSON.stringify(list, null, 2))
-      for (const s of list) console.log(`${s.id}  ${s.adapter.padEnd(6)}  ${String(s.entries).padStart(5)} entries  ${s.updated_at}  ${s.name ?? ""}`)
+      const byId = new Map(list.map((s) => [s.id, s]))
+      for (const s of list)
+        console.log(`${s.id}  ${s.adapter.padEnd(6)}  ${String(s.entries).padStart(5)} entries  ${s.updated_at.slice(0, 16)}  ${s.name ?? ""}${s.forked_from ? `  ↳ branch of ${byId.get(s.forked_from)?.name ?? s.forked_from.slice(0, 8)}` : ""}`)
       return
     }
 
@@ -279,6 +282,15 @@ async function main() {
       const path = await writeProjectConfig(cwd, pc)
       console.log(`shared: every ${pc.agent ?? "claude/codex"} session started in ${cwd} now syncs via hooks (${mode} mode).`)
       console.log(`\nInvite for a teammate — send them this sentence to paste into their AI:\n  ${inviteSentence(pc)}\n\n(link only: ${inviteLink(pc)}; config: ${path})`)
+      return
+    }
+
+    case "branch": {
+      if (!args[0]) throw new Error("usage: mc branch <session> [--name N]")
+      const from = await resolveLocal(cwd, args[0], agentName, { url: pRemote, shareKey: pKey })
+      const b = await branch({ from, cwd, remote: pRemote, shareKey: pKey, name: flags.name, adapter: flags.agent })
+      console.log(`branch ready: ${b.name}  (${b.id}, ${b.entries} turns)`)
+      console.log(`→ type /resume in ${b.adapter === "codex" ? "Codex" : "Claude Code"} (opened here) and pick it — or: ${getAdapter(b.adapter).resumeCommand(b.id)}`)
       return
     }
 
@@ -303,10 +315,17 @@ async function main() {
         ...(u.searchParams.get("agent") ? { agent: u.searchParams.get("agent") as "claude" | "codex" } : {}),
       }
       await writeProjectConfig(cwd, pc)
-      const { api } = await client(pc.remote)
+      const { api, cfg } = await client(pc.remote)
       const list = await api.listSessions(pc.shareKey)
       console.log(`joined — sessions started in ${cwd} now sync with the team (${pc.mode} mode).`)
-      console.log(list.length ? `${list.length} shared session(s) available: mc ls · mc open <name|id>` : "no sessions yet; start claude or codex here and they'll appear for everyone.")
+      // roots only (not other people's branches); newest first
+      const roots = list.filter((s) => !s.forked_from)
+      if (!roots.length) return console.log("no sessions yet; start claude or codex here and they'll appear for everyone.")
+      const latest = roots[0]
+      const b = await branch({ from: latest.id, cwd, remote: pc.remote, shareKey: pc.shareKey })
+      console.log(`\nyour branch of "${latest.name ?? latest.id.slice(0, 8)}" is ready: ${b.name} (${b.entries} turns of history).`)
+      console.log(`→ To continue it: in ${b.adapter === "codex" ? "Codex" : "Claude Code"} opened in this folder, type /resume and pick "${b.name}" (it's first in the list).`)
+      if (roots.length > 1) console.log(`(${roots.length - 1} other session(s) available: mc ls · mc branch <name>)`)
       return
     }
 

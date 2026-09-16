@@ -67,4 +67,18 @@ sleep 1; (cd "$T/A/proj2" && mc A daemon status "$SID2" | grep -q "running") || 
 printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"SessionEnd"}' "$SID2" "$PA2/$SID2.jsonl" "$T/A/proj2" | (cd "$T/A/proj2" && mc A hook)
 sleep 0.5; (cd "$T/A/proj2" && mc A daemon status "$SID2" | grep -q "no daemon") || { echo "FAIL: daemon not stopped"; exit 1; }
 SID=$SIDSAVE
+echo "== branch: join creates the teammate's own branch of the latest session"
+mkdir -p "$T/A/proj3" "$T/C/proj3"
+(cd "$T/A/proj3" && mc A init >/dev/null); LINK=$(cd "$T/A/proj3" && mc A invite | tail -1 | sed 's/^link: //')
+SID3=44444444-2222-4333-8444-555555555555; PA3="$T/A/.claude/projects/$(echo "$T/A/proj3" | sed 's/[^a-zA-Z0-9]/-/g')"; mkdir -p "$PA3"
+SIDSAVE=$SID; SID=$SID3
+{ line null user "root turn" r1 0 "$T/A/proj3"; line '"r1"' assistant "root reply" r2 1 "$T/A/proj3"; } > "$PA3/$SID3.jsonl"
+(cd "$T/A/proj3" && mc A push --name root3 >/dev/null)
+OUT=$(cd "$T/C/proj3" && mc C join "$LINK" 2>&1); echo "$OUT" | grep -q "your branch of \"root3\"" || { echo "FAIL: join did not branch: $OUT"; exit 1; }
+PC3="$T/C/.claude/projects/$(echo "$T/C/proj3" | sed 's/[^a-zA-Z0-9]/-/g')"
+BR=$(ls "$PC3" | grep -v "$SID3" | sed 's/.jsonl//'); [ -n "$BR" ] || { echo "FAIL: no branch file"; ls "$PC3"; exit 1; }
+test "$(wc -l <"$PC3/$BR.jsonl")" -eq 2 || { echo "FAIL: branch history"; exit 1; }
+grep -q "\"sessionId\":\"$BR\"" "$PC3/$BR.jsonl" || { echo "FAIL: branch sessionId not rewritten"; exit 1; }
+(cd "$T/A/proj3" && mc A ls | grep -q "branch of root3") || { echo "FAIL: branch not listed"; (cd "$T/A/proj3" && mc A ls); exit 1; }
+SID=$SIDSAVE
 echo; echo "ALL PASSED"

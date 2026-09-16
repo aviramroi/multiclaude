@@ -6,6 +6,7 @@ export interface RemoteSession {
   owner: string
   adapter: string
   share_key?: string
+  forked_from?: string | null
   head: number
   entries: number
   created_at: string
@@ -45,8 +46,8 @@ export class Client {
   listSessions(shareKey?: string) {
     return this.req<RemoteSession[]>("GET", "/sessions", undefined, shareKey)
   }
-  createSession(id: string, name: string | undefined, adapter: string, shareKey?: string) {
-    return this.req<RemoteSession>("POST", "/sessions", { id, name, adapter, share_key: shareKey }, shareKey)
+  createSession(id: string, name: string | undefined, adapter: string, shareKey?: string, forkedFrom?: string) {
+    return this.req<RemoteSession>("POST", "/sessions", { id, name, adapter, share_key: shareKey, forked_from: forkedFrom }, shareKey)
   }
   getSession(id: string, key?: string) {
     return this.req<RemoteSession>("GET", `/sessions/${id}`, undefined, key)
