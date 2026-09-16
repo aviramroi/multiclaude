@@ -1,5 +1,6 @@
 ---
-description: Show local vs remote sync state for this session
-allowed-tools: Bash(mc:*)
+description: Sync state for this session (inline, no reasoning needed)
 ---
-Run `mc status $ARGUMENTS` and explain ahead/behind/diverged in one line each.
+!`mc status 2>&1`
+
+Reply with the block above verbatim.

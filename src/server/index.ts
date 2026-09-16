@@ -105,12 +105,18 @@ const server = Bun.serve<WsData>({
 
     if (path === "/sessions" && req.method === "GET") {
       if (!user) return err("unauthorized", 401)
-      return json(q.mySessions.all(user.id, user.id).map((s) => withMeta(s, true)))
+      const mine = q.mySessions.all(user.id, user.id)
+      // a project share key (from .multiclaude.json) also reveals that project's sessions
+      const byKey = shareKey ? db.query<Session, [string]>("SELECT * FROM sessions WHERE share_key = ?").all(shareKey) : []
+      const seen = new Set<string>()
+      const all = [...mine, ...byKey].filter((s) => !seen.has(s.id) && seen.add(s.id))
+      all.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+      return json(all.map((s) => withMeta(s, true)))
     }
 
     if (path === "/sessions" && req.method === "POST") {
       if (!user) return err("unauthorized", 401)
-      const body = (await req.json().catch(() => ({}))) as { id?: string; name?: string; adapter?: string }
+      const body = (await req.json().catch(() => ({}))) as { id?: string; name?: string; adapter?: string; share_key?: string }
       const id = body.id ?? rid()
       const existing = q.session.get(id)
       if (existing) {
@@ -118,7 +124,7 @@ const server = Bun.serve<WsData>({
         return json(withMeta(existing, true))
       }
       db.query("INSERT INTO sessions (id, name, owner, adapter, share_key) VALUES (?, ?, ?, ?, ?)").run(
-        id, body.name ?? null, user.id, body.adapter ?? "claude", key(),
+        id, body.name ?? null, user.id, body.adapter ?? "claude", body.share_key?.trim() || key(),
       )
       return json(withMeta(q.session.get(id)!, true), 201)
     }

@@ -1,30 +1,20 @@
 ---
 name: multiclaude
-description: Share, hand off, or co-drive a Claude Code session with another account or machine. Use when the user mentions sharing a session, multiplayer, handing off to a teammate, pushing/pulling a conversation, or continuing someone else's session.
+description: Share, hand off, or co-drive a Claude Code session across accounts/machines. Use when the user mentions sharing a session, multiplayer, handing off to a teammate, or continuing someone else's session.
 ---
-# multiclaude — session sync
+# multiclaude — hook-driven session sync
 
-`mc` is a CLI (installed with the plugin) that treats a Claude Code transcript like a git repo.
-Transcripts are append-only JSONL DAGs (`uuid`/`parentUuid`), so sync is a set-union of entries;
-the server dedupes by id and every command is idempotent.
+Sync is done by **hooks calling `mc hook`**, not by you. Do not run `mc push`/`mc pull` yourself
+unless the user explicitly asks; hooks already push on Stop/SessionEnd and pull on SessionStart/UserPromptSubmit.
 
-## Two modes
-- **Turn-based (git-like):** `mc push` → share link → teammate `mc clone <link>` → `claude --resume <id>` → they work → `mc push` → you `mc pull`.
-- **Live (multiplayer):** both sides run `mc live <id>`; every new line streams both ways. `mc watch <id>` is a read-only viewer.
+When a `[multiclaude] N new turn(s) from teammates…` block appears in your context, treat those
+turns as part of this conversation (they are in the transcript file; they are simply newer than
+what you loaded).
 
-## Commands
-| goal | command |
-|---|---|
-| publish current session | `mc push --name <name> --link` |
-| get share link | `mc share` |
-| clone from link | `mc clone <url>` |
-| pull teammate's turns | `mc pull <name|id>` |
-| auto sync via hooks | `mc link <id>` (push on Stop, pull on SessionStart) |
-| live co-driving | `mc live <id>` |
-| inspect | `mc status`, `mc log`, `mc ls`, `mc ls --local` |
-| point at a server | `mc login https://host [--token …]` |
-
-## Constraints to tell the user
-- A **running** Claude session does not reload its transcript. Pulled turns become visible after `claude --resume <id>`; the SessionStart hook also injects a summary of new remote turns as context.
-- Concurrent turns on both sides create **diverged branches** (`mc status` warns). The newest leaf wins on resume; nothing is lost, the other branch stays in the file.
-- Cross-account is fine: transcripts contain no credentials. `cwd`/`sessionId` are rewritten on pull; absolute paths inside tool calls are not.
+## What to tell the user
+- Enable per project: `mc init` (turn-based) or `mc init --mode live` → commit `.multiclaude.json`.
+- Zero-token control from the prompt line: `! mc share`, `! mc status`, `! mc ls`.
+- Open a shared session with everything wired: `mc open <name>` (or `mc open --new <name>`).
+- Teammate: `git pull` (gets `.multiclaude.json`) → `mc ls` → `mc open <name>`.
+- A running session doesn't reload the transcript; hooks inject a compact summary of new turns instead.
+- Simultaneous turns ⇒ diverged branches (`mc status` warns); newest leaf wins, nothing is lost.

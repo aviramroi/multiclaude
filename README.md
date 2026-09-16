@@ -18,7 +18,19 @@ mc login http://localhost:4747                       # registers a token for thi
 claude plugin add ~/multiclaude/plugin               # /multiclaude:push, :pull, :clone, :share, :live, :status + hooks
 ```
 
-## Turn-based (like git)
+## Zero-token workflow (hooks do everything)
+```sh
+cd ~/proj && mc init                # or: mc init --mode live   → writes .multiclaude.json, commit it
+claude                              # every session here is now shared: push on Stop, pull on start/prompt
+# teammate (any account, after git pull):
+mc ls                               # see the project's sessions
+mc open <name|id>                   # pull → claude --resume → push on exit (live daemon in live mode)
+```
+Hooks: `SessionStart`/`UserPromptSubmit` → pull, `Stop`/`SessionEnd` → push, live mode → background `mc live` daemon.
+Claude never spends a turn on sync; it only sees a compact `[multiclaude] N new turn(s)` note when teammates added something (disable with `mc init --no-inject`).
+From inside Claude, `! mc share` / `! mc status` run without a model turn.
+
+## Turn-based (manual, like git)
 ```sh
 mc push --name auth-refactor --link      # from the project dir; prints a share link
 # teammate, any account:

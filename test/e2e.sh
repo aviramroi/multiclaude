@@ -44,4 +44,27 @@ for i in $(seq 1 30); do grep -q "live reply from A" "$PB" && break; sleep 0.2; 
 grep -q "live reply from A" "$PB" || { echo "FAIL: live sync"; cat "$T/live-A.log" "$T/live-B.log"; exit 1; }
 grep -q "live reply from A" "$T/live-B.log" && echo "B saw A's live entry"
 pkill -f "cli/index.ts live demo" || true
+echo "== project mode: .multiclaude.json + hooks only, no link, no manual push"
+mkdir -p "$T/A/proj2" "$T/B/proj2"
+(cd "$T/A/proj2" && mc A init >/dev/null) && cp "$T/A/proj2/.multiclaude.json" "$T/B/proj2/"   # "git pull" the config
+SID2=22222222-2222-4333-8444-555555555555
+PA2="$T/A/.claude/projects/$(echo "$T/A/proj2" | sed 's/[^a-zA-Z0-9]/-/g')"; mkdir -p "$PA2"
+SIDSAVE=$SID; SID=$SID2
+{ line null user "proj2 from A" p1 0 "$T/A/proj2"; line '"p1"' assistant "ok A" p2 1 "$T/A/proj2"; } > "$PA2/$SID2.jsonl"
+printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"Stop"}' "$SID2" "$PA2/$SID2.jsonl" "$T/A/proj2" | (cd "$T/A/proj2" && mc A hook)
+(cd "$T/B/proj2" && mc B ls | grep -q "$SID2") || { echo "FAIL: B cannot list project session"; exit 1; }
+PB2="$T/B/.claude/projects/$(echo "$T/B/proj2" | sed 's/[^a-zA-Z0-9]/-/g')/$SID2.jsonl"
+(cd "$T/B/proj2" && mc B pull "$SID2" >/dev/null) && test "$(wc -l <"$PB2")" -eq 2 || { echo "FAIL: B pull via project share key"; exit 1; }
+{ line '"p2"' user "B on proj2" p3 2 "$T/B/proj2"; } >> "$PB2"
+printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"SessionEnd"}' "$SID2" "$PB2" "$T/B/proj2" | (cd "$T/B/proj2" && mc B hook)
+OUT=$(printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"UserPromptSubmit"}' "$SID2" "$PA2/$SID2.jsonl" "$T/A/proj2" | (cd "$T/A/proj2" && mc A hook))
+echo "$OUT" | grep -q "B on proj2" || { echo "FAIL: UserPromptSubmit did not pull/inject: $OUT"; exit 1; }
+test "$(wc -l <"$PA2/$SID2.jsonl")" -eq 3 || { echo "FAIL: A expected 3 lines in proj2"; exit 1; }
+echo "== live mode via hooks: SessionStart spawns daemon, SessionEnd stops it"
+(cd "$T/A/proj2" && mc A init --mode live >/dev/null)
+printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"SessionStart"}' "$SID2" "$PA2/$SID2.jsonl" "$T/A/proj2" | (cd "$T/A/proj2" && mc A hook) >/dev/null
+sleep 1; (cd "$T/A/proj2" && mc A daemon status "$SID2" | grep -q "running") || { echo "FAIL: daemon not started"; cat "$T/A/.multiclaude/live/"*.log; exit 1; }
+printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"SessionEnd"}' "$SID2" "$PA2/$SID2.jsonl" "$T/A/proj2" | (cd "$T/A/proj2" && mc A hook)
+sleep 0.5; (cd "$T/A/proj2" && mc A daemon status "$SID2" | grep -q "no daemon") || { echo "FAIL: daemon not stopped"; exit 1; }
+SID=$SIDSAVE
 echo; echo "ALL PASSED"

@@ -60,11 +60,12 @@ export async function push(opts: {
   cwd?: string
   link?: boolean
   quiet?: boolean
+  shareKey?: string
 }): Promise<PushResult> {
   const { api } = await client(opts.remote)
   const entries = await readTranscript(opts.transcriptPath)
   const t = await tracked(opts.id)
-  const session = await api.createSession(opts.id, opts.name ?? t?.name, "claude").catch(async (e) => {
+  const session = await api.createSession(opts.id, opts.name ?? t?.name, "claude", opts.shareKey ?? t?.shareKey).catch(async (e) => {
     if (String(e).includes("409")) throw new Error(`session ${opts.id} exists remotely and you have no access`)
     throw e
   })

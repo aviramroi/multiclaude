@@ -1,11 +1,9 @@
 {
-  "description": "multiclaude: auto pull linked sessions on start, auto push on stop",
+  "description": "multiclaude: deterministic session sync. No model turns — hooks call `mc hook` directly.",
   "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 20 } ] }
-    ],
-    "Stop": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 20 } ] }
-    ]
+    "SessionStart":     [ { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 20 } ] } ],
+    "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 10 } ] } ],
+    "Stop":             [ { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 20 } ] } ],
+    "SessionEnd":       [ { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\"", "timeout": 20 } ] } ]
   }
 }

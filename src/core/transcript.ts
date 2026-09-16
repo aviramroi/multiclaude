@@ -60,9 +60,10 @@ export async function appendLines(path: string, lines: string[]): Promise<void> 
 
 /** DAG leaves among conversational entries. >1 leaf means the session diverged. */
 export function leaves(entries: Entry[]): Entry[] {
-  const conv = entries.filter((e) => e.type === "user" || e.type === "assistant")
-  const hasChild = new Set(conv.map((e) => e.parent).filter(Boolean) as string[])
-  return conv.filter((e) => !hasChild.has(e.id))
+  // Attachments/system lines hang off the same chain, so a leaf is any uuid-bearing
+  // entry (not a hashed metadata line) with no child of any type.
+  const hasChild = new Set(entries.map((e) => e.parent).filter(Boolean) as string[])
+  return entries.filter((e) => !e.id.startsWith("h_") && (e.parent !== null || e.type === "user") && !hasChild.has(e.id))
 }
 
 /** Rewrite machine-specific fields so a pulled transcript resumes on this machine. */

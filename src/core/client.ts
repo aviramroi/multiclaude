@@ -42,11 +42,11 @@ export class Client {
   me() {
     return this.req<{ user: string }>("GET", "/me")
   }
-  listSessions() {
-    return this.req<RemoteSession[]>("GET", "/sessions")
+  listSessions(shareKey?: string) {
+    return this.req<RemoteSession[]>("GET", "/sessions", undefined, shareKey)
   }
-  createSession(id: string, name: string | undefined, adapter: string) {
-    return this.req<RemoteSession>("POST", "/sessions", { id, name, adapter })
+  createSession(id: string, name: string | undefined, adapter: string, shareKey?: string) {
+    return this.req<RemoteSession>("POST", "/sessions", { id, name, adapter, share_key: shareKey }, shareKey)
   }
   getSession(id: string, key?: string) {
     return this.req<RemoteSession>("GET", `/sessions/${id}`, undefined, key)

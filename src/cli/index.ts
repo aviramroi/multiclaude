@@ -7,10 +7,14 @@ import { Client } from "../core/client"
 import { leaves, readTranscript, summarize } from "../core/transcript"
 import { client, pull, push, resolveLocal, tracked, track } from "./sync"
 import { live, printEntry } from "./live"
+import { findProjectConfig, writeProjectConfig, PROJECT_FILE, type ProjectConfig } from "../core/project"
+import { startLiveDaemon, stopLiveDaemon, liveDaemonPid } from "./daemon"
 
 const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude Code sessions
 
   mc login [url] [--token T] [--name N]   set remote (default http://localhost:4747), register/auth
+  mc init [--mode turn|live|off]          write .multiclaude.json: hooks then sync every session here, zero tokens
+  mc open <name|id> | mc open --new <name>  pull → claude --resume → (live daemon) → push on exit
   mc push [session] [--name N] [--link]   push a local session (default: latest in this cwd)
   mc pull <session> [--key K] [--link]    pull a remote session into this cwd's Claude project
   mc clone <url|id> [--key K]             pull + print the resume command
@@ -22,6 +26,7 @@ const HELP = `mc — multiclaude: git-style sync + live multiplayer for Claude C
   mc status [session]                     local vs remote state, divergence
   mc ls [--local]                         remote sessions you can access (or local ones)
   mc hook                                 (internal) handler for Claude Code hooks, reads stdin JSON
+  mc daemon stop <session>                stop a background live daemon
 
   refs: full id, unique prefix, name given at push, or "latest"
   env:  MULTICLAUDE_REMOTE, MULTICLAUDE_HOME, MULTICLAUDE_USER
@@ -39,6 +44,9 @@ const { values: flags, positionals } = parseArgs({
     local: { type: "boolean" },
     cwd: { type: "string" },
     json: { type: "boolean" },
+    mode: { type: "string" },
+    new: { type: "string" },
+    "no-inject": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 })
@@ -60,6 +68,10 @@ function parseSessionRef(ref: string): { id: string; remote?: string; key?: stri
 
 async function main() {
   if (!cmd || flags.help) return console.log(HELP)
+  // .multiclaude.json (if any) supplies remote + share key defaults for every command
+  const proj = await findProjectConfig(cwd)
+  const pRemote = flags.remote ?? proj?.cfg.remote
+  const pKey = flags.key ?? proj?.cfg.shareKey
 
   switch (cmd) {
     case "login": {
@@ -85,7 +97,7 @@ async function main() {
     case "push": {
       const id = await resolveLocal(cwd, args[0])
       const path = adapter.sessionPath(cwd, id)
-      const r = await push({ id, transcriptPath: path, name: flags.name, remote: flags.remote, cwd, link: flags.link })
+      const r = await push({ id, transcriptPath: path, name: flags.name, remote: pRemote, cwd, link: flags.link, shareKey: pKey })
       const t = await tracked(id)
       console.log(`pushed ${r.added} new / ${r.total} entries → ${t?.remote}/sessions/${id} (head ${r.head})`)
       if (r.diverged) console.log("⚠ session has diverged branches; the latest leaf wins on resume")
@@ -97,7 +109,7 @@ async function main() {
       if (!args[0]) throw new Error("usage: mc pull <session>")
       const ref = parseSessionRef(args[0])
       const id = await resolveLocal(cwd, ref.id)
-      const r = await pull({ id, cwd, remote: ref.remote ?? flags.remote, shareKey: ref.key ?? flags.key, link: flags.link })
+      const r = await pull({ id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link })
       console.log(`pulled ${r.added} new entries → ${r.path} (head ${r.head})`)
       if (r.diverged) console.log("⚠ diverged branches present")
       console.log(`resume: ${adapter.resumeCommand(id)}`)
@@ -107,7 +119,7 @@ async function main() {
     case "clone": {
       if (!args[0]) throw new Error("usage: mc clone <url|id> [--key K]")
       const ref = parseSessionRef(args[0])
-      const r = await pull({ id: ref.id, cwd, remote: ref.remote ?? flags.remote, shareKey: ref.key ?? flags.key, link: flags.link ?? true })
+      const r = await pull({ id: ref.id, cwd, remote: ref.remote ?? pRemote, shareKey: ref.key ?? pKey, link: flags.link ?? true })
       console.log(`cloned ${r.added} entries → ${r.path}`)
       console.log(`\n  ${adapter.resumeCommand(ref.id)}\n`)
       return
@@ -117,8 +129,8 @@ async function main() {
       const id = await resolveLocal(cwd, args[0])
       let t = await tracked(id)
       if (!t?.shareKey) {
-        const { api } = await client(flags.remote)
-        const s = await api.getSession(id)
+        const { api } = await client(pRemote)
+        const s = await api.getSession(id, pKey)
         t = await track(id, { shareKey: s.share_key, remote: api.base })
       }
       console.log(`mc clone ${t.remote}/sessions/${id}?key=${t.shareKey}`)
@@ -139,18 +151,18 @@ async function main() {
       const t = await tracked(id)
       if (!t) {
         // first time: make sure the remote has it
-        if (await Bun.file(path).exists()) await push({ id, transcriptPath: path, remote: flags.remote, cwd })
-        else await pull({ id, cwd, remote: flags.remote, shareKey: flags.key })
+        if (await Bun.file(path).exists()) await push({ id, transcriptPath: path, remote: pRemote, cwd, shareKey: pKey })
+        else await pull({ id, cwd, remote: pRemote, shareKey: pKey })
       }
-      await live({ id, path, cwd, remote: flags.remote })
+      await live({ id, path, cwd, remote: pRemote })
       return
     }
 
     case "watch": {
       if (!args[0]) throw new Error("usage: mc watch <session>")
       const ref = parseSessionRef(args[0])
-      const { api } = await client(ref.remote ?? flags.remote)
-      if (ref.key ?? flags.key) await api.join(ref.id, (ref.key ?? flags.key)!)
+      const { api } = await client(ref.remote ?? pRemote)
+      if (ref.key ?? pKey) await api.join(ref.id, (ref.key ?? pKey)!)
       const { entries } = await api.pullEntries(ref.id, 0)
       for (const e of entries) printEntry(e)
       await track(ref.id, { cursor: Math.max(0, ...entries.map((e) => e.seq ?? 0)), remote: api.base })
@@ -178,10 +190,12 @@ async function main() {
       console.log(`local    ${entries.length} entries, ${lv.length} leaf${lv.length === 1 ? "" : " ⚠ diverged"}  ${path}`)
       if (!t) return console.log("remote   not tracked (run: mc push)")
       const { api } = await client(t.remote)
-      const s = await api.getSession(id, t.shareKey)
+      const s = await api.getSession(id, t.shareKey ?? pKey)
       const { missing } = await api.have(id, entries.map((e) => e.id))
-      console.log(`remote   ${s.entries} entries, head ${s.head}, cursor ${t.cursor}  ${t.remote}`)
-      console.log(`         ahead ${missing.length} (unpushed)  behind ${Math.max(0, s.head - t.cursor)} (unpulled, approx)`)
+      const localIds = new Set(entries.map((e) => e.id))
+      const behind = (await api.pullEntries(id, 0)).entries.filter((e) => !localIds.has(e.id)).length
+      console.log(`remote   ${s.entries} entries  ${t.remote}`)
+      console.log(`         ahead ${missing.length} (unpushed)  behind ${behind} (unpulled)`)
       console.log(`linked   ${t.linked ? "yes (auto sync via hooks)" : "no"}`)
       return
     }
@@ -195,11 +209,63 @@ async function main() {
         }
         return
       }
-      const { api } = await client(flags.remote)
-      const list = await api.listSessions()
+      const { api } = await client(pRemote)
+      const list = await api.listSessions(pKey)
       if (flags.json) return console.log(JSON.stringify(list, null, 2))
       for (const s of list) console.log(`${s.id}  ${String(s.entries).padStart(5)} entries  ${s.updated_at}  ${s.name ?? ""}`)
       return
+    }
+
+    case "init": {
+      const { cfg } = await client(flags.remote)
+      const existing = proj?.cfg
+      const mode = (flags.mode as ProjectConfig["mode"]) ?? existing?.mode ?? "turn"
+      const pc: ProjectConfig = {
+        remote: flags.remote ?? existing?.remote ?? cfg.remote,
+        mode,
+        shareAll: true,
+        inject: flags["no-inject"] ? false : existing?.inject ?? true,
+        shareKey: existing?.shareKey ?? crypto.randomUUID().replace(/-/g, "").slice(0, 20),
+      }
+      const path = await writeProjectConfig(cwd, pc)
+      console.log(`wrote ${path} (mode ${mode}). Commit it — teammates' hooks will sync automatically.`)
+      console.log(`every session started in this directory now pushes on Stop and pulls on start/prompt.`)
+      if (mode === "live") console.log("live mode: a background daemon streams turns both ways while Claude runs.")
+      return
+    }
+
+    case "open": {
+      const remote = pRemote
+      let id: string
+      if (flags.new) {
+        id = crypto.randomUUID()
+        await track(id, { linked: true, cwd, name: flags.new, remote: remote ?? (await client(remote)).api.base })
+        const { api } = await client(remote)
+        await api.createSession(id, flags.new, "claude", proj?.cfg.shareKey)
+        console.log(`new shared session "${flags.new}" ${id}`)
+      } else {
+        if (!args[0]) throw new Error("usage: mc open <name|id|url> | mc open --new <name>")
+        const ref = parseSessionRef(args[0])
+        id = await resolveLocal(cwd, ref.id)
+        const r = await pull({ id, cwd, remote: ref.remote ?? remote, shareKey: ref.key ?? flags.key ?? proj?.cfg.shareKey, link: true })
+        console.log(`pulled ${r.added} new entries`)
+      }
+      const mode = flags.mode ?? proj?.cfg.mode ?? "turn"
+      if (mode === "live") console.log(`live daemon pid ${await startLiveDaemon(id, cwd, remote)}`)
+      const claudeArgs = flags.new ? ["--session-id", id] : ["--resume", id]
+      const proc = Bun.spawn(["claude", ...claudeArgs], { cwd, stdio: ["inherit", "inherit", "inherit"] })
+      await proc.exited
+      await stopLiveDaemon(id)
+      const r = await push({ id, transcriptPath: adapter.sessionPath(cwd, id), remote, cwd, shareKey: proj?.cfg.shareKey })
+      console.log(`pushed ${r.added} new entries on exit`)
+      return
+    }
+
+    case "daemon": {
+      const id = await resolveLocal(cwd, args[1])
+      if (args[0] === "stop") return console.log((await stopLiveDaemon(id)) ? `stopped live daemon for ${id}` : "no daemon running")
+      const pid = await liveDaemonPid(id)
+      return console.log(pid ? `live daemon running (pid ${pid})` : "no daemon running")
     }
 
     case "hook":
@@ -213,9 +279,13 @@ async function main() {
 }
 
 /**
- * Claude Code hook entrypoint. stdin: {session_id, transcript_path, cwd, hook_event_name, source?}
- * SessionStart → pull linked session, surface new remote turns as context.
- * Stop         → push linked session (or every session with autoPushAll).
+ * Claude Code hook entrypoint — everything here is deterministic, no model turns.
+ * stdin: {session_id, transcript_path, cwd, hook_event_name, source?}
+ *   SessionStart     → pull; start live daemon in live mode; optionally inject "N new turns"
+ *   UserPromptSubmit → pull (turn mode) so the file is current before Claude answers
+ *   Stop             → push
+ *   SessionEnd       → push, stop live daemon
+ * A session is synced when it is `mc link`ed, or when the cwd has a .multiclaude.json (shareAll).
  */
 async function hook() {
   const input = JSON.parse((await Bun.stdin.text()) || "{}")
@@ -226,16 +296,56 @@ async function hook() {
   if (!id || !path) return
   const t = await tracked(id)
   const cfg = await loadConfig()
+  const proj = await findProjectConfig(hcwd)
+  const projOn = proj && proj.cfg.mode !== "off" && proj.cfg.shareAll
+  if (!(t?.linked || projOn || cfg.autoPushAll)) return
+  const remote = t?.remote ?? proj?.cfg.remote
+  const mode = proj?.cfg.mode ?? "turn"
+  const inject = proj?.cfg.inject ?? true
+  const hasFile = await Bun.file(path).exists()
+
+  const doPull = async () => {
+    // Nothing to pull for a brand-new local session the remote has never seen.
+    if (!t && !hasFile) return null
+    return pull({ id, cwd: hcwd, remote, shareKey: t?.shareKey ?? proj?.cfg.shareKey, link: true }).catch((e) => {
+      if (!String(e).includes("404")) throw e
+      return null
+    })
+  }
+  const doPush = () =>
+    hasFile ? push({ id, transcriptPath: path, remote, cwd: hcwd, link: true, quiet: true, shareKey: proj?.cfg.shareKey }) : null
+  const note = (r: Awaited<ReturnType<typeof pull>> | null, eventName: string) => {
+    if (!r?.added || !inject) return
+    const lines = r.newEntries
+      .map((e) => summarize(e.raw, 240))
+      .filter(Boolean)
+      .map((s) => `${s!.role === "user" ? "teammate" : "claude"}: ${s!.text}`)
+    if (!lines.length) return
+    const ctx = `[multiclaude] ${lines.length} new turn(s) from teammates landed in this session:\n${lines.slice(-8).join("\n")}`
+    console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: eventName, additionalContext: ctx } }))
+  }
+
   try {
-    if (event === "SessionStart" && t?.linked) {
-      const r = await pull({ id, cwd: hcwd, remote: t.remote })
-      if (r.added) {
-        const lines = r.newEntries.map((e) => summarize(e.raw, 300)).filter(Boolean).map((s) => `${s!.role}: ${s!.text}`)
-        const ctx = `multiclaude pulled ${r.added} new entries from teammates into this session. Newest turns:\n${lines.slice(-12).join("\n")}`
-        console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } }))
+    switch (event) {
+      case "SessionStart": {
+        await doPush() // lines written after the last Stop (e.g. summaries) go out first
+        note(await doPull(), "SessionStart")
+        if (mode === "live") await startLiveDaemon(id, hcwd, remote)
+        break
       }
-    } else if (event === "Stop" && (t?.linked || cfg.autoPushAll)) {
-      await push({ id, transcriptPath: path, remote: t?.remote, cwd: hcwd, quiet: true })
+      case "UserPromptSubmit": {
+        if (mode === "live") break // daemon already keeps the file current
+        await doPush()
+        note(await doPull(), "UserPromptSubmit")
+        break
+      }
+      case "Stop":
+        await doPush()
+        break
+      case "SessionEnd":
+        await doPush()
+        await stopLiveDaemon(id)
+        break
     }
   } catch (e) {
     console.error(`mc hook (${event}): ${(e as Error).message}`)
