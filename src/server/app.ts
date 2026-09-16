@@ -1,6 +1,6 @@
 import type { Store, User, Session, StoredEntry } from "./store"
 import type { WireEntry } from "../core/transcript"
-import { landing, claimPage, accountPage, signInPage, joinPage } from "./web"
+import { landing, claimPage, accountPage, signInPage, joinPage, agentInstructions } from "./web"
 import { installScript } from "./install"
 import { sendClaimCode, mailConfigured } from "./mail"
 
@@ -93,8 +93,14 @@ export function createApp(opts: AppOptions) {
     if (path === "/" && req.method === "GET") return html(landing(base))
     if (path === "/install.sh") return new Response(installScript(base), { headers: { "content-type": "text/x-shellscript" } })
 
-    const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})$/)
-    if (joinM) return html(joinPage({ host: base, key: joinM[1], mode: url.searchParams.get("mode") === "live" ? "live" : "turn", sessions: await store.countByKey(joinM[1]) }))
+    const text = (b: string) => new Response(b, { headers: { "content-type": "text/plain; charset=utf-8" } })
+    if (path === "/agent" || path === "/agent.md") return text(agentInstructions(base))
+    const joinM = path.match(/^\/j\/([A-Za-z0-9]{8,64})(\/agent)?$/)
+    if (joinM) {
+      const mode = url.searchParams.get("mode") === "live" ? "live" : "turn"
+      if (joinM[2]) return text(agentInstructions(base, { key: joinM[1], mode }))
+      return html(joinPage({ host: base, key: joinM[1], mode, sessions: await store.countByKey(joinM[1]) }))
+    }
 
     const claim = path.match(/^\/claim\/([A-Za-z0-9_-]{8,64})(?:\/(start|verify))?$/)
     if (claim) {

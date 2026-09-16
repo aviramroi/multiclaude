@@ -69,6 +69,10 @@ function inviteLink(pc: ProjectConfig) {
   return u.toString()
 }
 
+function inviteSentence(pc: ProjectConfig) {
+  return `Please join my teammate's multiclaude project in this folder by following the instructions at ${pc.remote}/j/${pc.shareKey}/agent${pc.mode === "live" ? "?mode=live" : ""} — then tell me which sessions are available and stop.`
+}
+
 function parseSessionRef(ref: string): { id: string; remote?: string; key?: string } {
   // mc clone https://host/sessions/<id>?key=K   or   https://host/s/<id>#K   or   <id>
   if (/^https?:\/\//.test(ref)) {
@@ -261,14 +265,14 @@ async function main() {
       }
       const path = await writeProjectConfig(cwd, pc)
       console.log(`shared: every ${pc.agent ?? "claude/codex"} session started in ${cwd} now syncs via hooks (${mode} mode).`)
-      console.log(`invite teammates (they paste it to their agent, or run mc join):\n  ${inviteLink(pc)}`)
-      console.log(`(config: ${path})`)
+      console.log(`\nInvite for a teammate — send them this sentence to paste into their AI:\n  ${inviteSentence(pc)}\n\n(link only: ${inviteLink(pc)}; config: ${path})`)
       return
     }
 
     case "invite": {
       if (!proj) throw new Error("this folder is not shared yet — run: mc init")
-      console.log(inviteLink(proj.cfg))
+      console.log(inviteSentence(proj.cfg))
+      console.log(`\nlink: ${inviteLink(proj.cfg)}`)
       return
     }
 

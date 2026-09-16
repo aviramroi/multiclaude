@@ -1,153 +1,211 @@
-// Server-rendered pages: landing, claim flow, account. No build step; one shared stylesheet.
+// Server-rendered pages. Written for people who don't use a terminal: one thing to copy, one button to press.
+// Everything technical lives behind "For developers" or on /agent (instructions the AI reads).
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
 
 const CSS = `
-:root{--bg:#0b0d10;--fg:#e8e6e1;--mut:#8a8f98;--acc:#f5c451;--acc2:#7dd3fc;--card:#12151a;--line:#1f242b;--ok:#4ade80}
-@media(prefers-color-scheme:light){:root{--bg:#faf9f6;--fg:#15171a;--mut:#5c6370;--acc:#b8860b;--acc2:#0369a1;--card:#fff;--line:#e6e3dc}}
+:root{--bg:#fbfaf7;--fg:#1a1c20;--mut:#666b75;--acc:#e0a52c;--acc-ink:#1a1c20;--acc2:#0b6bcb;--card:#fff;--line:#e8e4dc;--ok:#1a9a5a;--warn:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1013;--fg:#ecebe7;--mut:#9aa0aa;--acc:#f3c04f;--acc2:#7dc4ff;--card:#161a20;--line:#252b34;--ok:#4ade80;--warn:#fbbf24}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif}
 a{color:var(--acc2);text-decoration:none}a:hover{text-decoration:underline}
-.wrap{max-width:860px;margin:0 auto;padding:0 16px}
-header{display:flex;justify-content:space-between;align-items:center;padding:20px 0;border-bottom:1px solid var(--line)}
-.logo{font-weight:700;letter-spacing:-.02em}.logo b{color:var(--acc)}
-nav a{margin-left:18px;color:var(--mut);font-size:14px}
-h1{font-size:clamp(34px,6vw,56px);line-height:1.05;letter-spacing:-.03em;margin:64px 0 18px}
+.wrap{max-width:720px;margin:0 auto;padding:0 16px}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 0}
+.logo{font-weight:700;letter-spacing:-.02em;color:var(--fg)}.logo b{color:var(--acc)}
+nav a{margin-left:16px;color:var(--mut);font-size:15px}
+h1{font-size:clamp(32px,7vw,52px);line-height:1.08;letter-spacing:-.03em;margin:56px 0 16px}
 h1 em{font-style:normal;color:var(--acc)}
-.lead{font-size:19px;color:var(--mut);max-width:620px}
-h2{font-size:22px;margin:56px 0 12px;letter-spacing:-.01em}
-pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow:auto;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
-pre.wrap{white-space:pre-wrap;word-break:break-word;padding-right:70px}
-pre .c{color:var(--mut)}pre .k{color:var(--acc)}pre .p{color:var(--acc2)}
-code{font:.92em ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:18px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
-.card h3{margin:0 0 6px;font-size:16px}.card p{margin:0;color:var(--mut);font-size:15px}
-.steps{counter-reset:s;padding:0;margin:18px 0 0;list-style:none}
-.steps li{counter-increment:s;position:relative;padding:0 0 18px 44px;color:var(--mut)}
-.steps li b{color:var(--fg)}
-.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--acc)}
-.btn{display:inline-block;background:var(--acc);color:#111;font-weight:600;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:15px}
+.lead{font-size:20px;color:var(--mut);max-width:560px;margin:0 0 28px}
+h2{font-size:24px;margin:56px 0 10px;letter-spacing:-.01em}
+h3{font-size:17px;margin:0 0 4px}
+p{margin:0 0 12px}
+.copybox{position:relative;background:var(--card);border:2px solid var(--acc);border-radius:16px;padding:20px 20px 62px;font-size:18px;line-height:1.5;box-shadow:0 8px 30px rgba(0,0,0,.06)}
+.copybox .copy{position:absolute;right:14px;bottom:14px;background:var(--acc);color:var(--acc-ink);font-weight:700;border:0;border-radius:10px;padding:11px 18px;font-size:15px;cursor:pointer}
+.copybox .copy:active{transform:translateY(1px)}
+.hint{color:var(--mut);font-size:15px;margin-top:10px}
+.steps{padding:0;margin:14px 0 0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;position:relative;padding:0 0 22px 50px;font-size:17px}
+.steps li b{display:block;color:var(--fg)}.steps li span{color:var(--mut)}
+.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:34px;height:34px;border-radius:50%;background:var(--acc);color:var(--acc-ink);display:grid;place-items:center;font-weight:700}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.card p{margin:0;color:var(--mut);font-size:15px}
+.btn{display:inline-block;background:var(--acc);color:var(--acc-ink);font-weight:700;border:0;border-radius:12px;padding:14px 22px;cursor:pointer;font-size:17px;text-decoration:none!important}
 .btn.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}
-input{width:100%;font:16px inherit;padding:12px 14px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-label{display:block;font-size:14px;color:var(--mut);margin:14px 0 6px}
-.box{max-width:480px;margin:64px auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px}
-.box h1{font-size:26px;margin:0 0 8px}.box p{color:var(--mut)}
-.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:14px;margin:16px 0}.kv dt{color:var(--mut)}.kv dd{margin:0;word-break:break-all}
-.ok{color:var(--ok)}.warn{color:var(--acc)}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:500}
-footer{margin:80px 0 40px;color:var(--mut);font-size:14px;border-top:1px solid var(--line);padding-top:20px}
-.copy{float:right;font-size:12px;color:var(--mut);cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:2px 8px;background:transparent}
+.btn.block{display:block;width:100%;text-align:center}
+input{width:100%;font:18px inherit;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+label{display:block;font-size:15px;color:var(--mut);margin:16px 0 6px}
+.box{max-width:480px;margin:48px auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px}
+.box h1{font-size:28px;margin:0 0 10px}.box .lead{font-size:17px;margin-bottom:6px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}
+details{margin-top:56px;border-top:1px solid var(--line);padding-top:18px}
+summary{cursor:pointer;color:var(--mut);font-size:15px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow:auto;font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+pre .c{color:var(--mut)}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.row .t{font-weight:600}.row .s{color:var(--mut);font-size:14px}
+.mini{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;cursor:pointer;color:var(--fg);white-space:nowrap}
+footer{margin:64px 0 40px;color:var(--mut);font-size:14px}
 `
+
+const COPY_JS = `document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.getAttribute('data-copy'));const t=b.textContent;b.textContent='Copied ✓';setTimeout(()=>b.textContent=t,1500)})`
 
 const page = (title: string, body: string, desc = "") => `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
-<meta name="description" content="${esc(desc)}"><link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="26">⇅</text></svg>')}">
+<meta name="description" content="${esc(desc)}"><link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="26">🤝</text></svg>')}">
 <style>${CSS}</style></head><body><div class="wrap">
-<header><a class="logo" href="/">multi<b>claude</b></a><nav><a href="/#how">How it works</a><a href="/#install">Install</a><a href="https://github.com/aviramroi/multiclaude">GitHub</a><a href="/account">Account</a></nav></header>
+<header><a class="logo" href="/">multi<b>claude</b></a><nav><a href="/#how">How it works</a><a href="/account">My sessions</a></nav></header>
 ${body}
-<footer>multiclaude — open source (MIT), <a href="https://github.com/aviramroi/multiclaude">github.com/aviramroi/multiclaude</a>. Hosted for free at this address; self-host with one <code>bun run server</code>.</footer>
-</div><script>document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.parentElement.innerText.replace('copy','').trim());b.textContent='copied';setTimeout(()=>b.textContent='copy',1200)})</script></body></html>`
+<footer>Free and open source · <a href="https://github.com/aviramroi/multiclaude">GitHub</a> · <a href="/agent">Instructions for AI agents</a></footer>
+</div><script>${COPY_JS}</script></body></html>`
+
+/** The one sentence a person pastes into their AI. The AI reads /agent for the real steps. */
+export const setupPrompt = (host: string) => `Please set up multiclaude for me by following the instructions at ${host}/agent — then give me the approval link and stop.`
+export const invitePrompt = (host: string, key: string, mode: "turn" | "live") =>
+  `Please join my teammate's multiclaude project in this folder by following the instructions at ${host}/j/${key}/agent${mode === "live" ? "?mode=live" : ""} — then tell me which sessions are available and stop.`
 
 export function landing(host: string) {
-  const agentPrompt = `Set up multiclaude on this machine: run \`curl -fsSL ${host}/install.sh | bash\` and then \`mc login ${host}\`. Send me the approval link it prints and stop.`
+  const prompt = setupPrompt(host)
   return page(
-    "multiclaude — share Claude Code & Codex sessions like git",
+    "multiclaude — share your AI coding session with a teammate",
     `
-<h1>Push, pull and <em>co-drive</em> your coding-agent sessions.</h1>
-<p class="lead">multiclaude treats a Claude Code or Codex conversation like a git repo. Hand a session to a teammate on another account, pull their turns back, or stream both ways live — with hooks doing the work, zero extra tokens.</p>
-<p style="margin-top:26px"><a class="btn" href="#install">Set up with your agent</a> &nbsp; <a class="btn sec" href="https://github.com/aviramroi/multiclaude">Read the source</a></p>
+<h1>Work on the same AI session, <em>together</em>.</h1>
+<p class="lead">Share a Claude Code or Codex session with a teammate — like sharing a Google Doc. They pick up exactly where you left off, on their own computer and account.</p>
+
+<h2 style="margin-top:0">Set it up in one paste</h2>
+<p class="hint" style="margin:0 0 12px">Copy this and paste it into Claude Code or Codex. Your AI does the setup; you only click <b>Approve</b>.</p>
+<div class="copybox">${esc(prompt)}<button class="copy" data-copy="${esc(prompt)}">Copy</button></div>
 
 <h2 id="how">How it works</h2>
-<div class="grid">
- <div class="card"><h3>Transcripts are DAGs</h3><p>Every turn has a uuid and a parent. Sync is a set-union of lines — idempotent, mergeable, no lost work.</p></div>
- <div class="card"><h3>Hooks, not prompts</h3><p>SessionStart / Stop hooks call <code>mc hook</code>. Your agent never spends a turn on sync.</p></div>
- <div class="card"><h3>Two modes</h3><p><b>Turn-based</b>: push → clone → resume → push back. <b>Live</b>: both sides stream every line in real time.</p></div>
- <div class="card"><h3>Any account, any machine</h3><p>Transcripts hold no credentials. Paths are rewritten on pull; <code>claude --resume</code> just works.</p></div>
-</div>
-
-<h2 id="install">Let your agent set it up — you only approve</h2>
-<p class="lead" style="font-size:16px">Paste this into Claude Code or Codex. The agent downloads one small binary (no git, no runtimes, no config files), registers this machine, and hands you one link. Nothing is created until you approve it.</p>
-<pre class="wrap"><button class="copy">copy</button>${esc(agentPrompt)}</pre>
 <ol class="steps">
- <li><b>Agent installs and registers.</b> It gets a working token immediately and prints an approval link.</li>
- <li><b>You open the link, enter your email, type the 6-digit code.</b> That's the whole signup.</li>
- <li><b>Share a project.</b> Tell your agent “share this project with multiclaude” — it runs <code>mc init</code> and gives you an invite link.</li>
- <li><b>Teammate pastes the link to their agent.</b> Their agent runs <code>mc join &lt;link&gt;</code>; from then on every session in that folder syncs both ways. No git involved.</li>
+ <li><b>Paste the sentence above into your AI.</b><span>It sets itself up and gives you back a link.</span></li>
+ <li><b>Open the link and tap Approve.</b><span>That's your account. No password, no forms.</span></li>
+ <li><b>Tell your AI “share this project”.</b><span>You get an invite link to send to a teammate.</span></li>
+ <li><b>Your teammate pastes the invite into their AI.</b><span>From now on you both see the same sessions.</span></li>
 </ol>
 
-<h2>Or do it by hand</h2>
-<pre><span class="c"># install: one static binary into ~/.multiclaude/bin, hooks wired for Claude Code / Codex</span>
+<h2>What you get</h2>
+<div class="cards">
+ <div class="card"><h3>Hand off, don't re-explain</h3><p>Your teammate's AI already knows everything yours figured out.</p></div>
+ <div class="card"><h3>Works across accounts</h3><p>Different Claude or Codex logins, different computers — doesn't matter.</p></div>
+ <div class="card"><h3>Automatic</h3><p>Sessions sync in the background. Nothing to run, nothing to remember.</p></div>
+ <div class="card"><h3>Live mode</h3><p>Watch a teammate's session as it happens, or drive it together.</p></div>
+</div>
+
+<details><summary>For developers</summary>
+<pre><span class="c"># install one static binary + wire the Claude Code / Codex hooks</span>
 curl -fsSL ${esc(host)}/install.sh | bash
-mc login ${esc(host)}                 <span class="c"># prints the approval link</span>
+mc login ${esc(host)}          <span class="c"># prints the approval link</span>
 
-<span class="c"># share a project (you)</span>
-cd ~/proj && mc init                  <span class="c"># prints an invite link like ${esc(host)}/j/…</span>
-claude                                <span class="c"># or: codex — sessions here now sync via hooks</span>
+<span class="c"># share the current folder; prints an invite link</span>
+mc init                        <span class="c"># or: mc init --mode live</span>
 
-<span class="c"># join it (teammate, any account, any machine)</span>
-cd ~/proj && mc join ${esc(host)}/j/&lt;key&gt;
-mc ls && mc open &lt;name&gt;             <span class="c"># pull → resume → push on exit</span></pre>
-
-<h2>Self-host</h2>
-<pre>git clone https://github.com/aviramroi/multiclaude && cd multiclaude && bun install
-PORT=4747 bun run server              <span class="c"># SQLite file, one process; or: docker build .</span></pre>
+<span class="c"># teammate</span>
+mc join ${esc(host)}/j/&lt;key&gt;
+mc open &lt;name&gt;               <span class="c"># pull → resume → push on exit</span></pre>
+<p class="hint">Sync is done by editor hooks (push on stop, pull on start) — the AI never spends a turn on it. Transcripts are append-only DAGs, so merges are set-unions and nothing is lost. Self-host with <code>bun run server</code>. Source: <a href="https://github.com/aviramroi/multiclaude">github.com/aviramroi/multiclaude</a>.</p>
+</details>
 `,
-    "git-style push/pull and live multiplayer for Claude Code and Codex sessions across accounts.",
+    "Share a Claude Code or Codex session with a teammate. Paste one sentence into your AI, click Approve, done.",
   )
 }
 
+/** Plain-text instructions an AI agent follows (served at /agent and /j/<key>/agent). */
+export function agentInstructions(host: string, join?: { key: string; mode: "turn" | "live" }) {
+  const common = `# multiclaude — instructions for AI coding agents
+
+You are setting up multiclaude for the person you are working with. Do these steps yourself; do not ask them to run commands.
+
+1. Install (one static binary, no git/bun/node needed):
+   curl -fsSL ${host}/install.sh | bash
+   Then make sure it is on PATH for this shell:  export PATH="$HOME/.multiclaude/bin:$PATH"
+   (The installer also wires the Claude Code / Codex hooks that sync sessions automatically.)
+
+2. Connect this machine:
+   mc login ${host}
+   It prints an APPROVAL link (https://…/claim/…).`
+  if (join)
+    return `${common}
+
+3. Join the shared project — run this INSIDE the project folder they want to share:
+   mc join ${host}/j/${join.key}${join.mode === "live" ? "?mode=live" : ""}
+
+4. Show them what is available:
+   mc ls
+   To continue one of those sessions:  mc open <name-or-id>   (this resumes it in the editor)
+
+5. Tell the person, in plain words: which sessions exist, and give them the approval link from step 2 if the login said it needs approval. Then stop.
+`
+  return `${common}
+
+3. Tell the person, in plain words: "Open this link and press Approve: <the link>". Then stop.
+
+Later, when they ask to share a project, run inside that folder:
+   mc init                # prints an invite link (${host}/j/…) — give it to them to send to a teammate
+   mc init --mode live    # same, but both sides stream every turn live
+When they paste an invite link, run:  mc join <link>   inside the folder, then  mc ls.
+Sessions in a shared folder sync automatically through editor hooks; you never need to run mc push/pull.
+`
+}
+
 export function claimPage(opts: { code: string; user: string; created: string; claimed?: string | null; step: "email" | "code" | "done"; email?: string; error?: string; host: string; otp?: boolean }) {
-  const { code, user, created, step, email, error } = opts
+  const { code, user, step, email, error } = opts
   let body: string
   if (opts.claimed) {
-    body = `<h1>Already approved</h1><p>This machine (<b>${esc(user)}</b>) is linked to <b>${esc(opts.claimed)}</b>.</p><p><a class="btn" href="/account">Open account</a></p>`
+    body = `<h1 class="ok">Already approved</h1><p class="lead">This computer is connected to <b>${esc(opts.claimed)}</b>.</p><p><a class="btn block" href="/account">See my sessions</a></p>`
   } else if (step === "email") {
-    body = `<h1>Approve this machine?</h1>
-<p>An agent running as <b>${esc(user)}</b> asked to create a multiclaude account on ${esc(opts.host)} (${esc(created)}).</p>
-<dl class="kv"><dt>Machine</dt><dd>${esc(user)}</dd><dt>Can do</dt><dd>push &amp; pull sessions it has share keys for</dd><dt>Cannot do</dt><dd>read other people's sessions, change your email, delete anything</dd></dl>
-<form method="post" action="/claim/${esc(code)}/start"><label>Your email${opts.otp ? " — we send a 6-digit code" : ""}</label><input name="email" type="email" required autofocus placeholder="you@company.com" value="${esc(email)}">
-${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">${opts.otp ? "Send code" : "Approve this machine"}</button></p></form>`
+    body = `<h1>Your AI wants to connect this computer</h1>
+<p class="lead">It's asking to save and share your coding sessions under your name. Nothing happens until you approve.</p>
+<p class="hint">Computer: <b>${esc(user)}</b></p>
+<form method="post" action="/claim/${esc(code)}/start"><label>Your email — so you can find your sessions later${opts.otp ? " (we'll send a 6-digit code)" : ""}</label><input name="email" type="email" required autofocus placeholder="you@company.com" value="${esc(email)}">
+${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn block">${opts.otp ? "Send me the code" : "Approve"}</button></p></form>
+<p class="hint">Didn't ask for this? Just close the page.</p>`
   } else if (step === "code") {
-    body = `<h1>Enter the code</h1><p>Sent to <b>${esc(email)}</b>. It expires in 10 minutes.</p>
-<form method="post" action="/claim/${esc(code)}/verify"><input type="hidden" name="email" value="${esc(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus placeholder="123456">
-${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Approve machine</button> &nbsp; <a href="/claim/${esc(code)}">change email</a></p></form>`
+    body = `<h1>Check your email</h1><p class="lead">We sent a 6-digit code to <b>${esc(email)}</b>.</p>
+<form method="post" action="/claim/${esc(code)}/verify"><input type="hidden" name="email" value="${esc(email)}"><label>Code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus placeholder="123456">
+${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn block">Approve</button></p></form><p class="hint"><a href="/claim/${esc(code)}">Use a different email</a></p>`
   } else {
-    body = `<h1 class="ok">Approved</h1><p><b>${esc(user)}</b> is now linked to <b>${esc(email)}</b>. Your agent can keep working — nothing else to do.</p><p><a class="btn" href="/account">Open account</a></p>`
+    body = `<h1 class="ok">You're all set</h1><p class="lead">This computer is now connected to <b>${esc(email)}</b>. You can go back to your AI — it can keep working.</p>
+<p class="hint">Next: tell your AI <b>“share this project”</b> and it will give you an invite link for a teammate.</p><p><a class="btn block" href="/account">See my sessions</a></p>`
   }
-  return page("Approve machine — multiclaude", `<div class="box">${body}</div>`)
+  return page("Approve — multiclaude", `<div class="box">${body}</div>`)
 }
 
 export function accountPage(opts: { email: string; machines: { name: string; created_at: string }[]; sessions: { id: string; name: string | null; adapter: string; entries: number; updated_at: string; share_key: string }[]; host: string }) {
   const rows = opts.sessions
-    .map((s) => `<tr><td><code>${esc(s.id.slice(0, 8))}</code> ${esc(s.name ?? "")}</td><td>${esc(s.adapter)}</td><td>${s.entries}</td><td>${esc(s.updated_at.slice(0, 16))}</td><td><code style="font-size:12px">mc clone ${esc(opts.host)}/sessions/${esc(s.id)}?key=${esc(s.share_key)}</code></td></tr>`)
+    .map((s) => {
+      const invite = invitePrompt(opts.host, s.share_key, "turn")
+      const when = new Date(s.updated_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+      return `<div class="row"><div><div class="t">${esc(s.name ?? s.id.slice(0, 8))}</div><div class="s">${esc(s.adapter === "codex" ? "Codex" : "Claude Code")} · ${s.entries} turns · ${esc(when)}</div></div>
+<button class="mini" data-copy="${esc(invite)}">Copy invite</button></div>`
+    })
     .join("")
   return page(
-    "Account — multiclaude",
-    `<h2 style="margin-top:40px">${esc(opts.email)}</h2>
-<p class="lead" style="font-size:15px">Machines: ${opts.machines.map((m) => `<code>${esc(m.name)}</code>`).join(" ") || "none"}</p>
-<h2>Sessions</h2>
-${rows ? `<table><tr><th>Session</th><th>Agent</th><th>Entries</th><th>Updated</th><th>Share</th></tr>${rows}</table>` : `<p class="lead" style="font-size:15px">No sessions yet. Run <code>mc init</code> in a project and start Claude or Codex.</p>`}
+    "My sessions — multiclaude",
+    `<h1 style="font-size:32px;margin-top:40px">My sessions</h1>
+<p class="lead">${esc(opts.email)} · ${opts.machines.length} computer${opts.machines.length === 1 ? "" : "s"} connected</p>
+${rows || `<p class="lead">No sessions yet. Start Claude Code or Codex in a project and tell it <b>“share this project”</b>.</p>`}
+<p class="hint" style="margin-top:18px">“Copy invite” gives you a sentence to send a teammate — they paste it into their AI.</p>
 <form method="post" action="/account/logout" style="margin-top:40px"><button class="btn sec">Sign out</button></form>`,
   )
 }
 
 export function signInPage(error?: string, email?: string, sent = false) {
   const body = sent
-    ? `<h1>Enter the code</h1><p>Sent to <b>${esc(email)}</b>.</p><form method="post" action="/account/verify"><input type="hidden" name="email" value="${esc(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus>${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Sign in</button></p></form>`
-    : `<h1>Sign in</h1><p>We email you a code — no password.</p><form method="post" action="/account/start"><label>Email</label><input name="email" type="email" required autofocus value="${esc(email)}">${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn">Send code</button></p></form>`
+    ? `<h1>Check your email</h1><p class="lead">We sent a 6-digit code to <b>${esc(email)}</b>.</p><form method="post" action="/account/verify"><input type="hidden" name="email" value="${esc(email)}"><label>Code</label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" required autofocus>${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn block">Sign in</button></p></form>`
+    : `<h1>See my sessions</h1><p class="lead">Enter the email you approved with. No password.</p><form method="post" action="/account/start"><label>Email</label><input name="email" type="email" required autofocus value="${esc(email)}">${error ? `<p class="warn">${esc(error)}</p>` : ""}<p style="margin-top:18px"><button class="btn block">Continue</button></p></form>`
   return page("Sign in — multiclaude", `<div class="box">${body}</div>`)
 }
 
 export function joinPage(opts: { host: string; key: string; mode: "turn" | "live"; sessions: number }) {
-  const link = `${opts.host}/j/${opts.key}${opts.mode === "live" ? "?mode=live" : ""}`
-  const prompt = `Join a shared multiclaude project in this folder: if \`mc\` is missing run \`curl -fsSL ${opts.host}/install.sh | bash\` and \`mc login ${opts.host}\`; then run \`mc join ${link}\`, show me \`mc ls\`, and stop.`
+  const prompt = invitePrompt(opts.host, opts.key, opts.mode)
   return page(
-    "Join project — multiclaude",
+    "You're invited — multiclaude",
     `<div class="box"><h1>You've been invited to a shared project</h1>
-<p>${opts.sessions} session${opts.sessions === 1 ? "" : "s"} so far · ${opts.mode === "live" ? "live" : "turn-based"} mode.</p>
-<p>Open Claude Code or Codex <b>in the project folder</b> and paste:</p>
-<pre class="wrap"><button class="copy">copy</button>${esc(prompt)}</pre>
-<p style="font-size:14px">Or by hand: <code>mc join ${esc(link)}</code></p></div>`,
+<p class="lead">${opts.sessions ? `${opts.sessions} session${opts.sessions === 1 ? "" : "s"} waiting for you.` : "Your teammate is sharing their AI coding sessions with you."}</p>
+<p class="hint">Open Claude Code or Codex <b>in the project folder</b>, then paste this:</p>
+<div class="copybox" style="font-size:16px">${esc(prompt)}<button class="copy" data-copy="${esc(prompt)}">Copy</button></div>
+<p class="hint">Your AI will set everything up. If it's your first time you'll get one link to approve.</p></div>`,
   )
 }
