@@ -25,6 +25,8 @@ export interface TrackedSession {
   cwd: string
   name?: string
   adapter?: string // claude | codex
+  /** transcript path as reported by the harness (may differ from what cwd suggests) */
+  path?: string
 }
 
 export interface State {

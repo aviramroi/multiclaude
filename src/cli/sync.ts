@@ -92,6 +92,7 @@ export async function push(opts: {
   }
   await track(opts.id, {
     remote: api.base,
+    path: opts.transcriptPath,
     shareKey: session.share_key ?? t?.shareKey,
     cwd: opts.cwd ?? t?.cwd ?? process.cwd(),
     name: opts.name ?? t?.name ?? session.name ?? undefined,
@@ -112,6 +113,8 @@ export async function pull(opts: {
   shareKey?: string
   adapter?: string
   link?: boolean
+  /** write here instead of the adapter's cwd-derived path (hooks know the real transcript path) */
+  path?: string
 }): Promise<PullResult> {
   const { api } = await client(opts.remote)
   const t = await tracked(opts.id)
@@ -119,7 +122,7 @@ export async function pull(opts: {
   if (key) await api.join(opts.id, key).catch(() => {})
   const info = await api.getSession(opts.id, key)
   const adapter = getAdapter(opts.adapter ?? info.adapter ?? t?.adapter ?? "claude")
-  const path = await adapter.sessionPath(opts.cwd, opts.id)
+  const path = opts.path ?? t?.path ?? (await adapter.sessionPath(opts.cwd, opts.id))
   const local = await readTranscript(path)
   const localIds = new Set(local.map((e) => e.id))
   // Cursor is an optimisation; ids are the source of truth so a reset cursor is safe.
@@ -129,6 +132,7 @@ export async function pull(opts: {
   await appendLines(path, fresh.map((e) => localize(e.raw, opts.cwd, opts.id)))
   await track(opts.id, {
     adapter: adapter.name,
+    path,
     remote: api.base,
     cursor: head,
     cwd: opts.cwd,
